@@ -171,6 +171,8 @@ class GaiaQuery(object):
 
         df_gaia = results.to_pandas()
         return df_gaia
+    
+    
         
     def match_last_and_gaia(self):
         """
@@ -280,140 +282,6 @@ class GaiaQuery(object):
         df_match = df_match[(df_match['LAST_SN']>5) & (df_match['LAST_SN']<1000)].reset_index()
         print('Matching time: ',time.time()-start)
         return df_match
-    
-    def match_last_and_gaia_OLD(self):
-        """
-        Matches sources from the LAST catalog with sources from the Gaia catalog based on their coordinates.
-
-        Returns:
-            df_match (DataFrame): DataFrame containing the matched sources from both catalogs.
-        """
-        
-        df_gaia = self.run_query_to_pandas(self.create_query())
-        
-
-
-        last_cat = self.last_cat
-        info_cat = self.info_cat
-        dt = info_cat.header['EXPTIME']
-
-        df_match = pd.DataFrame(columns=['GaiaDR3_ID','LAST_num','JD','LAST_SN','LAST_FLUX_APER_3','LAST_FLUXERR_APER_3','LAST_FLUX_PSF','LAST_FLUXERR_PSF','ang_sep','LAST_X','LAST_Y','G_color','LAST_FLAGS','G_mag','g_ra','g_dec'])
-
-        df_match = df_match.astype({'GaiaDR3_ID':'int','LAST_num':'int','JD':'float','LAST_SN':'float',
-                                    'LAST_FLUX_APER_3':'float','LAST_FLUXERR_APER_3':'float','LAST_FLUX_PSF':'float','LAST_FLUXERR_PSF':'float','ang_sep':'float','LAST_X':'float',
-                                    'LAST_Y':'float','G_color':'float','LAST_FLAGS':'float','G_mag':'float','g_ra':'float','g_dec':'float'})
-
-        coord_last_cat = SkyCoord(ra=last_cat['RA'], dec=last_cat['DEC'], unit='deg', frame='icrs')
-
-        gaiaid_list =[]
-        lastid_list =[]
-
-
-        for i in range(len(df_gaia)):
-            
-            coord_0 = SkyCoord(ra=df_gaia['g_ra'][i], dec=df_gaia['g_dec'][i], unit='deg', frame='icrs',equinox='J2016')
-            
-                
-            sep = coord_0.separation(coord_last_cat)
-                
-            mask_sep = sep < 2.*u.arcsec
-
-            if sum(mask_sep) == 0: 
-                
-                continue
-            elif sum(mask_sep) == 1:
-                
-                last_idx_ = np.where(mask_sep == True)[0][0]
-
-                last_flags = last_cat['FLAGS'][last_idx_]
-
-                #binary_number = bin(int(last_flags))[2:]
-                #indices_flags = np.where(np.array(list(binary_number)) == '1')[0]
-
-                last_flags_keys = LastCatUtils().get_flags_keyword(last_flags)
-                
-                #if len(indices_flags) > 0:
-                if all(ff in ['Saturated','NaN','Negative','CR_DeltaHT','NearEdge'] for ff in last_flags_keys):    
-                    continue
-
-                jd_ = info_cat.header['JD']    
-                sn_ = last_cat['SN'][last_idx_]
-                    
-                flux_3_ = last_cat['FLUX_APER_3'][last_idx_]/dt
-                flux_3_err_ = last_cat['FLUXERR_APER_3'][last_idx_]/dt
-
-                flux_psf_ = last_cat['FLUX_PSF'][last_idx_]/dt
-                flux_psf_err_ = last_cat['FLUXERR_APER_3'][last_idx_]/dt
-
-                last_x = last_cat['X'][last_idx_]
-                last_y = last_cat['Y'][last_idx_]
-                last_flags = last_cat['FLAGS'][last_idx_]
-
-                gaia_color = df_gaia['g_color'][i]
-                gaia_mag = df_gaia['g_mag'][i]
-                g_Ra = df_gaia['g_ra'][i]
-                g_Dec = df_gaia['g_dec'][i]
-                    
-                gaiaid_list.append(df_gaia['SOURCE_ID'][i])
-                lastid_list.append(int(last_idx_))
-                    
-                new_row = {'GaiaDR3_ID':int(df_gaia['SOURCE_ID'][i]),'ang_sep':sep[last_idx_].to(u.arcsec).value,
-                            'LAST_SN':sn_,'LAST_FLUX_APER_3':flux_3_,'LAST_FLUXERR_APER_3':flux_3_err_,'LAST_num':int(last_idx_),'LAST_X':last_x,'LAST_Y':last_y,'G_color':gaia_color,'LAST_FLAGS':last_flags,
-                            'G_mag':gaia_mag,'LAST_FLUX_PSF':flux_psf_,'LAST_FLUXERR_PSF':flux_psf_err_,'JD':jd_,'g_ra':g_Ra,'g_dec':g_Dec}
-               
-                
-                #df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)    
-                df_match = pd.concat([df_match,pd.DataFrame([new_row])],ignore_index=True)     
-                    
-            else:
-                print('Too many coincidences!! Abort!')
-                continue
-        df_match = df_match.astype({'GaiaDR3_ID':'int','LAST_num':'int','JD':'float','LAST_SN':'float',
-                                    'LAST_FLUX_APER_3':'float','LAST_FLUXERR_APER_3':'float','LAST_FLUX_PSF':'float','LAST_FLUXERR_PSF':'float',
-                                    'ang_sep':'float','LAST_X':'float','LAST_Y':'float','G_color':'float','LAST_FLAGS':'float','G_mag':'float','g_ra':'float','g_dec':'float'})    
-
-        df_match['GaiaDR3_ID'] = gaiaid_list
-        df_match['LAST_num'] = lastid_list
-
-        df_match = df_match[(df_match['LAST_SN']>5) & (df_match['LAST_SN']<1000)].reset_index()
-
-        return df_match
-
-    def retrieve_gaia_spectra_OLD(self):
-        """
-        Retrieves Gaia spectra for the matched sources.
-
-        Returns:
-            source_ids (list): List of Gaia source IDs.
-            tables (list): List of tables containing Gaia spectra for each matched source.
-            df_match (DataFrame): DataFrame containing the matched sources from both catalogs.
-        """
-        retrieval_type = 'XP_SAMPLED'          # Options are: 'EPOCH_PHOTOMETRY', 'MCMC_GSPPHOT', 'MCMC_MSC', 'XP_SAMPLED', 'XP_CONTINUOUS', 'RVS', 'ALL'
-        data_structure = 'COMBINED'     # Options are: 'INDIVIDUAL', 'COMBINED', 'RAW'
-        data_release   = 'Gaia DR3'     # Options are: 'Gaia DR3' (default), 'Gaia DR2'
-
-        df_match = self.match_last_and_gaia()
-        datalink  = Gaia.load_data(ids=df_match['GaiaDR3_ID'], data_release = data_release, retrieval_type=retrieval_type,
-                                data_structure = data_structure, verbose = False, output_file = None)
-        dl_keys  = [inp for inp in datalink.keys()]
-        dl_keys.sort()
-
-        print(f'The following Datalink products have been downloaded:')
-        for dl_key in dl_keys:
-            print(f' * {dl_key}')
-        
-        if dl_key != 'XP_SAMPLED_COMBINED.xml':
-            print(f'Warning: the Datalink product "{dl_key}" is not the expected one. Please check the output above.')
-            return None, None, None
-            
-        dl_key   = 'XP_SAMPLED_COMBINED.xml'    # Try also with 'XP_SAMPLED_COMBINED.xml'
-        product  = datalink[dl_key][0]   # Replace "1" by "0" or "2" to show the data for the individual sources.
-        items    = [item for item in product.iter_fields_and_params()]
-
-        source_ids  = [product.get_field_by_id("source_id").value for product in datalink[dl_key]]
-        tables      = [product.to_table()                         for product in datalink[dl_key]]
-
-        return source_ids, tables, df_match
     
 
     def retrieve_gaia_spectra(self,useHTM=False):

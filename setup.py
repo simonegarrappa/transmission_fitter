@@ -24,6 +24,6 @@ setup(
     python_requires='>=3.6',  # Minimum Python version
     install_requires=[
         "numpy", "matplotlib","astropy","pandas","lmfit","gaiaxpy",
-          "catsHTM","scipy" 
+          "catsHTM","scipy","seaborn","astroquery" 
     ]
 )

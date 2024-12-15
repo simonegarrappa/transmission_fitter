@@ -13,7 +13,7 @@ import numpy as np
 from matplotlib import rcParams
 import seaborn as sns
 import scipy
-from tqdm.notebook import trange, tqdm
+from tqdm import trange, tqdm
 import itertools
 from .blazarutils import BlazarQuery
 from astropy.constants import h,c

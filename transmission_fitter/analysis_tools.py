@@ -19,6 +19,8 @@ from .blazarutils import BlazarQuery
 from astropy.constants import h,c
 from scipy.interpolate import interp1d
 from .abscalutils import make_wvl_array
+import os
+import glob
 
 class LAST_ABSCAL_Analysis(object):
     def __init__(self,useHTM = True,use_atm = True):
@@ -37,6 +39,7 @@ class LAST_ABSCAL_Analysis(object):
         self.use_atm = use_atm
         wvl_arr = make_wvl_array()
         self.wvl_arr = wvl_arr
+        self.current_dir = os.path.dirname(__file__)
         
 
         pass
@@ -1428,6 +1431,36 @@ class LAST_ABSCAL_Analysis(object):
         plt.savefig(resfilename)
 
         plt.show()
+
+    
+    def calibrate_example_catalogs(self, cattype = 'single',resfilename = None):
+
+        if cattype == 'single':
+            catfiles_jolly = os.path.join(self.current_dir,'data','Image_Test/LAST*_sci_proc_Cat_1.fits') 
+            catfiles = glob.glob(catfiles_jolly)
+            if len(catfiles) == 0:
+                raise ValueError('No catalog files found in {}'.format(catfiles_jolly))
+            else:
+                print('Found {} catalog files'.format(len(catfiles)))
+                print('Calibrating...')
+                catfiles.sort()
+        
+                self.calibrate_list_of_catalogs(catfiles,resfilename=resfilename)
+                print('Calibration done.')
+        elif cattype == 'coadd':  
+            catfiles_jolly = os.path.join(self.current_dir,'data','Image_Test_Coadd/LAST*_sci_coadd_Cat_1.fits') 
+            catfiles = glob.glob(catfiles_jolly)
+            if len(catfiles) == 0:
+                raise ValueError('No catalog files found in {}'.format(catfiles_jolly))
+            else:
+                print('Found {} catalog files'.format(len(catfiles)))
+                print('Calibrating...')
+                catfiles.sort()
+        
+                self.calibrate_list_of_catalogs(catfiles,resfilename=resfilename)
+                print('Calibration done.')  
+
+        return None
 
 
 

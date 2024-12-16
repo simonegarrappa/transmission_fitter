@@ -5,7 +5,7 @@ from astropy.coordinates import SkyCoord
 import pandas as pd
 import numpy as np
 from .lastcatutils import LastCatUtils
-from tqdm import tqdm
+#from tqdm import tqdm
 
 class BlazarQuery(object):
 
@@ -295,7 +295,7 @@ class BlazarQuery(object):
         columns_ = self.columns_ed3calibrators
         df_match = pd.DataFrame(columns=columns_)
 
-        for nn, catfile in tqdm(enumerate(catfile_list)):
+        for nn, catfile in enumerate(catfile_list):
 
             if (nn+1) % 1000 == 0:
                 print('Searching in image {} of {}'.format(nn+1, len(catfile_list)))

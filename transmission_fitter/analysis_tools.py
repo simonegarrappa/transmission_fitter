@@ -13,7 +13,7 @@ import numpy as np
 from matplotlib import rcParams
 import seaborn as sns
 import scipy
-from tqdm import trange, tqdm
+#from tqdm import trange, tqdm
 import itertools
 from .blazarutils import BlazarQuery
 from astropy.constants import h,c
@@ -164,7 +164,7 @@ class LAST_ABSCAL_Analysis(object):
         df_match_fit_list = []
         catfile_list_processed = []
 
-        for j,catfile in tqdm(enumerate(catfile_list)):
+        for j,catfile in enumerate(catfile_list):
             print('Calibrating catalog number: {} of {}'.format(j,len(catfile_list)))
             try:
                 params_to_save, df_match_fit = self.calibrate_single_catalog(catfile.strip())
@@ -292,7 +292,7 @@ class LAST_ABSCAL_Analysis(object):
         match_radius = self.match_radius
         print('Matching sources with a radius of {} arcsec'.format(match_radius))
         
-        for j, cat_ in tqdm(enumerate(list(catlist))):
+        for j, cat_ in enumerate(list(catlist)):
             
             print('Matching sources from catalog: {}'.format(cat_))
             last_cat, info_cat = LastCatUtils().tables_from_lastcat(cat_.strip());
@@ -373,7 +373,7 @@ class LAST_ABSCAL_Analysis(object):
         params = self.params_cal
         flux_syn_list = []
         jd_syn_list = []
-        for j, cat_ in tqdm(enumerate(list(self.catlist))):
+        for j, cat_ in enumerate(list(self.catlist)):
             abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=self.useHTM,use_atm=self.use_atm)
 
             transm_full = abscal_obj.Calculate_Full_Transmission_from_params(params[j])

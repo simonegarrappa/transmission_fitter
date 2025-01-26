@@ -262,7 +262,7 @@ class LAST_ABSCAL_Analysis(object):
 
         return params_list
     
-    def get_params_from_calibrated_results(self, resfile):
+    def get_params_from_calibrated_results_OLD(self, resfile):
         """
         Retrieves the transmission curve from the calibrated results.
 

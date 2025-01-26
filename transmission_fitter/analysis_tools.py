@@ -40,6 +40,8 @@ class LAST_ABSCAL_Analysis(object):
         wvl_arr = make_wvl_array()
         self.wvl_arr = wvl_arr
         self.current_dir = os.path.dirname(__file__)
+        self.cal_results_dir = None
+        self.single_output = True
         
 
         pass
@@ -134,18 +136,36 @@ class LAST_ABSCAL_Analysis(object):
             
 
 
-    def calibrate_list_of_catalogs(self, catfile_list_txt, resfilename='DefaultResults'):
+    def calibrate_list_of_catalogs(self, catfile_list_txt, resfilename='DefaultResults',single_output = True):
+        
         """
         Calibrates a list of catalogs.
-
-        Args:
-            catfile_list_txt (str): Path to the text file containing the list of catalog files.
-            resfilename (str, optional): Name of the results file. Defaults to 'DefaultResults'.
-
+        Parameters:
+        -----------
+        catfile_list_txt : str or list
+            A string representing the path to a .txt file containing the list of catalog files, 
+            or a list of catalog file paths.
+        resfilename : str, optional
+            The base name for the results file. Default is 'DefaultResults'.
+        single_output : bool, optional
+            If True, all results are saved in a single output file. If False, each catalog is 
+            processed and saved separately. Default is True.
+        Raises:
+        -------
+        ValueError
+            If `catfile_list_txt` is not a .txt file when it is a string.
+            If `single_output` is False and `cal_results_dir` is not set.
+        TypeError
+            If `catfile_list_txt` is neither a string nor a list.
         Returns:
-            None
+        --------
+        None
+            Prints 'Calibration complete!' upon successful completion.
         """
-
+        
+        self.single_output = single_output
+        if not single_output and self.cal_results_dir is None:
+            raise ValueError("Please set the calibration results directory using LAST_ABSCAL_Analysis.cal_results_dir().")
 
         if isinstance(catfile_list_txt, str):
             if not catfile_list_txt.endswith('.txt'):
@@ -174,18 +194,73 @@ class LAST_ABSCAL_Analysis(object):
             if params_to_save is None:
                 #skipping catalog
                 continue
-            params_to_save_list.append(params_to_save)
-            df_match_fit_list.append(df_match_fit)
-            catfile_list_processed.append(catfile)
+            if single_output:
+                params_to_save_list.append(params_to_save)
+                df_match_fit_list.append(df_match_fit)
+                catfile_list_processed.append(catfile)
+            else:
+                self.params_cal = params_to_save
+                self.df_match_cal = df_match_fit
+                self.catfile = catfile
+                catname = os.path.basename(catfile)
+                self.write_products(resfilename=self.cal_results_dir + '/Calibrated_' + catname.replace('.fits',''))
 
-        self.params_cal = params_to_save_list
-        self.df_match_cal = df_match_fit_list
-        self.catlist = catfile_list_processed
+        if single_output:
+            self.params_cal = params_to_save_list
+            self.df_match_cal = df_match_fit_list
+            self.catlist = catfile_list_processed
+            
+            self.write_products(resfilename=self.cal_results_dir + '/Calibrated_' + resfilename)
+        else:
+            
+            list_calibrated_files = glob.glob(self.cal_results_dir + '/Calibrated_*')
+            self.get_params_from_calibrated_results_single(resfilename = list_calibrated_files)
 
-        self.write_products(resfilename=resfilename)
 
         return print('Calibration complete!')
     
+    def get_params_from_calibrated_results(self, resfile):
+        """
+        Retrieves the transmission curve from the calibrated results.
+
+        Parameters:
+        - resfile (str): The path to the file containing the calibrated results.
+
+        Returns:
+        - params_list (list): A list of parameter dictionaries, each containing the values from the results file.
+
+        """
+        if isinstance(resfile,list):
+            df_results = pd.read_csv(resfile[0])
+            if len(df_results)>1:
+                for i in range(1,len(resfile)):
+                    df_results = pd.concat([df_results,pd.read_csv(resfile[i])],ignore_index=True)
+        elif isinstance(resfile,str):
+            df_results = pd.read_csv(resfile)
+        
+        catalogs_list = df_results['FILENAME']
+        res_columnames = df_results.columns
+
+        params_list = []
+
+        ## Create a default params object
+        for i, catalog_i in enumerate(catalogs_list):
+            abscal_obj = AbsoluteCalibration(catfile=catalog_i,useHTM=self.useHTM,use_atm=self.use_atm)
+            params_i = abscal_obj.Initialize_Params()
+            params_names = params_i.keys()
+            ## Update the default params object with the values from the results file
+            for colname in res_columnames:
+                if colname in params_names:
+                    params_i[colname].set(value=df_results[colname][i])
+
+            params_list.append(params_i)
+
+        self.catlist = catalogs_list
+        self.params_cal = params_list
+
+        print('Calibration parameters retrieved from stored results.')
+
+        return params_list
     
     def get_params_from_calibrated_results(self, resfile):
         """

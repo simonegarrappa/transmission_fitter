@@ -11,3 +11,6 @@ To install the package run in a terminal with python environment:
 pip install git+https://github.com/simonegarrappa/transmission_fitter.git
 
 All dependencies will be installed automatically.
+
+To update: 
+pip install --force-reinstall --no-deps git+https://github.com/simonegarrappa/transmission_fitter.git@main

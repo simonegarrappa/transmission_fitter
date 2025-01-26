@@ -214,7 +214,7 @@ class LAST_ABSCAL_Analysis(object):
         else:
             
             list_calibrated_files = glob.glob(self.cal_results_dir + '/Calibrated_*')
-            self.get_params_from_calibrated_results_single(resfilename = list_calibrated_files)
+            self.get_params_from_calibrated_results(resfilename = list_calibrated_files)
 
 
         return print('Calibration complete!')

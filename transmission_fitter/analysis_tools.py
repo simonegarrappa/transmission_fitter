@@ -231,14 +231,20 @@ class LAST_ABSCAL_Analysis(object):
 
         """
         if isinstance(resfile,list):
+            print('Multiple results files detected. Concatenating results.')
             df_results = pd.read_csv(resfile[0])
             if len(df_results)>1:
                 for i in range(1,len(resfile)):
                     df_results = pd.concat([df_results,pd.read_csv(resfile[i])],ignore_index=True)
+                catalogs_list = df_results['FILENAME'].values
+            else:
+                catalogs_list = df_results['FILENAME']
         elif isinstance(resfile,str):
+            print('Single results file detected.')
             df_results = pd.read_csv(resfile)
         
-        catalogs_list = df_results['FILENAME']
+            catalogs_list = df_results['FILENAME']  
+
         res_columnames = df_results.columns
 
         params_list = []

@@ -185,7 +185,7 @@ class LAST_ABSCAL_Analysis(object):
         catfile_list_processed = []
 
         for j,catfile in enumerate(catfile_list):
-            print('Calibrating catalog number: {} of {}'.format(j,len(catfile_list)))
+            print('Calibrating catalog number: {} of {}'.format(j+1,len(catfile_list)))
             try:
                 params_to_save, df_match_fit = self.calibrate_single_catalog(catfile.strip())
             except:
@@ -214,6 +214,7 @@ class LAST_ABSCAL_Analysis(object):
         else:
             
             list_calibrated_files = glob.glob(self.cal_results_dir + '/Calibrated_*')
+            list_calibrated_files.sort()
             self.get_params_from_calibrated_results(resfile = list_calibrated_files)
 
 
@@ -233,10 +234,11 @@ class LAST_ABSCAL_Analysis(object):
         if isinstance(resfile,list):
             print('Multiple results files detected. Concatenating results.')
             df_results = pd.read_csv(resfile[0])
-            if len(df_results)>1:
+            if len(resfile)>1:
                 for i in range(1,len(resfile)):
                     df_results = pd.concat([df_results,pd.read_csv(resfile[i])],ignore_index=True)
                 catalogs_list = df_results['FILENAME'].values
+                
             else:
                 catalogs_list = df_results['FILENAME']
         elif isinstance(resfile,str):
@@ -309,7 +311,7 @@ class LAST_ABSCAL_Analysis(object):
         
 
 
-    def create_matchedsource_df(self, resfile,min_jd = None,max_jd = None,coor_target = None):
+    def create_matchedsource_df(self, resfile=None,min_jd = None,max_jd = None,coor_target = None):
         """
         Create a DataFrame of matched sources from calibrated results.
 
@@ -320,8 +322,14 @@ class LAST_ABSCAL_Analysis(object):
         - matched_sources_df (pd.DataFrame): DataFrame containing the matched sources.
 
         """
-
-        params_list = self.get_params_from_calibrated_results(resfile);
+        if resfile is None:
+            try:
+                params_list = self.params_cal
+            except:
+                raise ValueError('Please provide a resfile or run the calibration first.')
+        else:
+            params_list = self.get_params_from_calibrated_results(resfile)
+        
 
         catlist = self.catlist
 
@@ -1129,14 +1137,14 @@ class LAST_ABSCAL_Analysis(object):
         df_results = pd.DataFrame(columns=columns)
         if catfile_list is not None:
             for i in range(len(catfile_list)):
-                row = [catfile_list[i].strip(),params_cal[i]['norm'].value,params_cal[i]['kx0'].value,params_cal[i]['ky0'].value,params_cal[i]['kx'].value,params_cal[i]['ky'].value,
+                row = [os.path.abspath(catfile_list[i].strip()),params_cal[i]['norm'].value,params_cal[i]['kx0'].value,params_cal[i]['ky0'].value,params_cal[i]['kx'].value,params_cal[i]['ky'].value,
                     params_cal[i]['kx2'].value,params_cal[i]['kx3'].value,params_cal[i]['ky2'].value,params_cal[i]['ky3'].value,params_cal[i]['kx4'].value,params_cal[i]['ky4'].value,
                     params_cal[i]['amplitude'].value,params_cal[i]['center'].value,params_cal[i]['sigma'].value,params_cal[i]['gamma'].value,
                     params_cal[i]['pressure'].value,params_cal[i]['AOD'].value,params_cal[i]['alpha'].value,params_cal[i]['ozone_col'].value,
                     params_cal[i]['PW'].value,params_cal[i]['temperature'].value,params_cal[i]['r0'].value,params_cal[i]['r1'].value,params_cal[i]['r2'].value,params_cal[i]['r3'].value,params_cal[i]['r4'].value]
                 df_results.loc[i] = row
         else:
-            row = [catfile.strip(),params_cal['norm'].value,params_cal['kx0'].value,params_cal['ky0'].value,params_cal['kx'].value,params_cal['ky'].value,
+            row = [os.path.abspath(catfile.strip()),params_cal['norm'].value,params_cal['kx0'].value,params_cal['ky0'].value,params_cal['kx'].value,params_cal['ky'].value,
                 params_cal['kx2'].value,params_cal['kx3'].value,params_cal['ky2'].value,params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,
                 params_cal['amplitude'].value,params_cal['center'].value,params_cal['sigma'].value,params_cal['gamma'].value,
                 params_cal['pressure'].value,params_cal['AOD'].value,params_cal['alpha'].value,params_cal['ozone_col'].value,

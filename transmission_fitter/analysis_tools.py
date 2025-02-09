@@ -1131,21 +1131,21 @@ class LAST_ABSCAL_Analysis(object):
         catfile = self.catfile
         catfile_list = self.catlist
 
-        columns = ['FILENAME','norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4',
+        columns = ['FILENAME','norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
                 'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4']
         
         df_results = pd.DataFrame(columns=columns)
         if catfile_list is not None:
             for i in range(len(catfile_list)):
                 row = [os.path.abspath(catfile_list[i].strip()),params_cal[i]['norm'].value,params_cal[i]['kx0'].value,params_cal[i]['ky0'].value,params_cal[i]['kx'].value,params_cal[i]['ky'].value,
-                    params_cal[i]['kx2'].value,params_cal[i]['kx3'].value,params_cal[i]['ky2'].value,params_cal[i]['ky3'].value,params_cal[i]['kx4'].value,params_cal[i]['ky4'].value,
+                    params_cal[i]['kx2'].value,params_cal[i]['kx3'].value,params_cal[i]['ky2'].value,params_cal[i]['ky3'].value,params_cal[i]['kx4'].value,params_cal[i]['ky4'].value,params_cal[i]['kxy'].value,
                     params_cal[i]['amplitude'].value,params_cal[i]['center'].value,params_cal[i]['sigma'].value,params_cal[i]['gamma'].value,
                     params_cal[i]['pressure'].value,params_cal[i]['AOD'].value,params_cal[i]['alpha'].value,params_cal[i]['ozone_col'].value,
                     params_cal[i]['PW'].value,params_cal[i]['temperature'].value,params_cal[i]['r0'].value,params_cal[i]['r1'].value,params_cal[i]['r2'].value,params_cal[i]['r3'].value,params_cal[i]['r4'].value]
                 df_results.loc[i] = row
         else:
             row = [os.path.abspath(catfile.strip()),params_cal['norm'].value,params_cal['kx0'].value,params_cal['ky0'].value,params_cal['kx'].value,params_cal['ky'].value,
-                params_cal['kx2'].value,params_cal['kx3'].value,params_cal['ky2'].value,params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,
+                params_cal['kx2'].value,params_cal['kx3'].value,params_cal['ky2'].value,params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
                 params_cal['amplitude'].value,params_cal['center'].value,params_cal['sigma'].value,params_cal['gamma'].value,
                 params_cal['pressure'].value,params_cal['AOD'].value,params_cal['alpha'].value,params_cal['ozone_col'].value,
                 params_cal['PW'].value,params_cal['temperature'].value,params_cal['r0'].value,params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value]

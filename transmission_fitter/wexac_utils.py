@@ -1,5 +1,5 @@
 import os
-
+## This is still work in progress
 def generate_lsf_file(
     job_name,
     queue,
@@ -43,28 +43,28 @@ def generate_lsf_file(
 
     print(f"LSF file '{lsf_file_name}' has been created.")
 
-# Example usage
-if __name__ == "__main__":
-    # Set job parameters
-    job_name = "example_job"
-    queue = "short"
-    output_file = "stdout.%J"
-    error_file = "stderr.%J"
-    command = "python script.py"
-    wall_time = "02:00"  # 2 hours
-    num_thread = 1
-    memory = "2GB"
-    lsf_file_name = "example_job.lsf"
+# # Example usage
+# if __name__ == "__main__":
+#     # Set job parameters
+#     job_name = "example_job"
+#     queue = "short"
+#     output_file = "stdout.%J"
+#     error_file = "stderr.%J"
+#     command = "python script.py"
+#     wall_time = "02:00"  # 2 hours
+#     num_thread = 1
+#     memory = "2GB"
+#     lsf_file_name = "example_job.lsf"
 
-    # Generate the .lsf file
-    generate_lsf_file(
-        job_name=job_name,
-        queue=queue,
-        output_file=output_file,
-        error_file=error_file,
-        command=command,
-        wall_time=wall_time,
-        num_cores=num_cores,
-        memory=memory,
-        lsf_file_name=lsf_file_name
-    )
+#     # Generate the .lsf file
+#     generate_lsf_file(
+#         job_name=job_name,
+#         queue=queue,
+#         output_file=output_file,
+#         error_file=error_file,
+#         command=command,
+#         wall_time=wall_time,
+#         num_cores=num_cores,
+#         memory=memory,
+#         lsf_file_name=lsf_file_name
+#     )

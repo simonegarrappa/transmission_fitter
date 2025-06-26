@@ -40,6 +40,8 @@ class LAST_ABSCAL_Analysis(object):
         wvl_arr = make_wvl_array()
         self.wvl_arr = wvl_arr
         self.current_dir = os.path.dirname(__file__)
+        self.cal_results_dir = None
+        self.single_output = True
         
 
         pass
@@ -134,18 +136,36 @@ class LAST_ABSCAL_Analysis(object):
             
 
 
-    def calibrate_list_of_catalogs(self, catfile_list_txt, resfilename='DefaultResults'):
+    def calibrate_list_of_catalogs(self, catfile_list_txt, resfilename='DefaultResults',single_output = True):
+        
         """
         Calibrates a list of catalogs.
-
-        Args:
-            catfile_list_txt (str): Path to the text file containing the list of catalog files.
-            resfilename (str, optional): Name of the results file. Defaults to 'DefaultResults'.
-
+        Parameters:
+        -----------
+        catfile_list_txt : str or list
+            A string representing the path to a .txt file containing the list of catalog files, 
+            or a list of catalog file paths.
+        resfilename : str, optional
+            The base name for the results file. Default is 'DefaultResults'.
+        single_output : bool, optional
+            If True, all results are saved in a single output file. If False, each catalog is 
+            processed and saved separately. Default is True.
+        Raises:
+        -------
+        ValueError
+            If `catfile_list_txt` is not a .txt file when it is a string.
+            If `single_output` is False and `cal_results_dir` is not set.
+        TypeError
+            If `catfile_list_txt` is neither a string nor a list.
         Returns:
-            None
+        --------
+        None
+            Prints 'Calibration complete!' upon successful completion.
         """
-
+        
+        self.single_output = single_output
+        if not single_output and self.cal_results_dir is None:
+            raise ValueError("Please set the calibration results directory using LAST_ABSCAL_Analysis.cal_results_dir().")
 
         if isinstance(catfile_list_txt, str):
             if not catfile_list_txt.endswith('.txt'):
@@ -165,7 +185,7 @@ class LAST_ABSCAL_Analysis(object):
         catfile_list_processed = []
 
         for j,catfile in enumerate(catfile_list):
-            print('Calibrating catalog number: {} of {}'.format(j,len(catfile_list)))
+            print('Calibrating catalog number: {} of {}'.format(j+1,len(catfile_list)))
             try:
                 params_to_save, df_match_fit = self.calibrate_single_catalog(catfile.strip())
             except:
@@ -174,20 +194,83 @@ class LAST_ABSCAL_Analysis(object):
             if params_to_save is None:
                 #skipping catalog
                 continue
-            params_to_save_list.append(params_to_save)
-            df_match_fit_list.append(df_match_fit)
-            catfile_list_processed.append(catfile)
+            if single_output:
+                params_to_save_list.append(params_to_save)
+                df_match_fit_list.append(df_match_fit)
+                catfile_list_processed.append(catfile)
+            else:
+                self.params_cal = params_to_save
+                self.df_match_cal = df_match_fit
+                self.catfile = catfile
+                catname = os.path.basename(catfile)
+                self.write_products(resfilename=self.cal_results_dir + '/Calibrated_' + catname.replace('.fits',''))
 
-        self.params_cal = params_to_save_list
-        self.df_match_cal = df_match_fit_list
-        self.catlist = catfile_list_processed
+        if single_output:
+            self.params_cal = params_to_save_list
+            self.df_match_cal = df_match_fit_list
+            self.catlist = catfile_list_processed
+            
+            self.write_products(resfilename=self.cal_results_dir + '/Calibrated_' + resfilename)
+        else:
+            
+            list_calibrated_files = glob.glob(self.cal_results_dir + '/Calibrated_*')
+            list_calibrated_files.sort()
+            self.get_params_from_calibrated_results(resfile = list_calibrated_files)
 
-        self.write_products(resfilename=resfilename)
 
         return print('Calibration complete!')
     
-    
     def get_params_from_calibrated_results(self, resfile):
+        """
+        Retrieves the transmission curve from the calibrated results.
+
+        Parameters:
+        - resfile (str): The path to the file containing the calibrated results.
+
+        Returns:
+        - params_list (list): A list of parameter dictionaries, each containing the values from the results file.
+
+        """
+        if isinstance(resfile,list):
+            print('Multiple results files detected. Concatenating results.')
+            df_results = pd.read_csv(resfile[0])
+            if len(resfile)>1:
+                for i in range(1,len(resfile)):
+                    df_results = pd.concat([df_results,pd.read_csv(resfile[i])],ignore_index=True)
+                catalogs_list = df_results['FILENAME'].values
+                
+            else:
+                catalogs_list = df_results['FILENAME']
+        elif isinstance(resfile,str):
+            print('Single results file detected.')
+            df_results = pd.read_csv(resfile)
+        
+            catalogs_list = df_results['FILENAME']  
+
+        res_columnames = df_results.columns
+
+        params_list = []
+
+        ## Create a default params object
+        for i, catalog_i in enumerate(catalogs_list):
+            abscal_obj = AbsoluteCalibration(catfile=catalog_i,useHTM=self.useHTM,use_atm=self.use_atm)
+            params_i = abscal_obj.Initialize_Params()
+            params_names = params_i.keys()
+            ## Update the default params object with the values from the results file
+            for colname in res_columnames:
+                if colname in params_names:
+                    params_i[colname].set(value=df_results[colname][i])
+
+            params_list.append(params_i)
+
+        self.catlist = catalogs_list
+        self.params_cal = params_list
+
+        print('Calibration parameters retrieved from stored results.')
+
+        return params_list
+    
+    def get_params_from_calibrated_results_OLD(self, resfile):
         """
         Retrieves the transmission curve from the calibrated results.
 
@@ -228,7 +311,7 @@ class LAST_ABSCAL_Analysis(object):
         
 
 
-    def create_matchedsource_df(self, resfile,min_jd = None,max_jd = None,coor_target = None):
+    def create_matchedsource_df(self, resfile=None,min_jd = None,max_jd = None,coor_target = None):
         """
         Create a DataFrame of matched sources from calibrated results.
 
@@ -239,8 +322,14 @@ class LAST_ABSCAL_Analysis(object):
         - matched_sources_df (pd.DataFrame): DataFrame containing the matched sources.
 
         """
-
-        params_list = self.get_params_from_calibrated_results(resfile);
+        if resfile is None:
+            try:
+                params_list = self.params_cal
+            except:
+                raise ValueError('Please provide a resfile or run the calibration first.')
+        else:
+            params_list = self.get_params_from_calibrated_results(resfile)
+        
 
         catlist = self.catlist
 
@@ -1042,21 +1131,21 @@ class LAST_ABSCAL_Analysis(object):
         catfile = self.catfile
         catfile_list = self.catlist
 
-        columns = ['FILENAME','norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4',
+        columns = ['FILENAME','norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
                 'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4']
         
         df_results = pd.DataFrame(columns=columns)
         if catfile_list is not None:
             for i in range(len(catfile_list)):
-                row = [catfile_list[i].strip(),params_cal[i]['norm'].value,params_cal[i]['kx0'].value,params_cal[i]['ky0'].value,params_cal[i]['kx'].value,params_cal[i]['ky'].value,
-                    params_cal[i]['kx2'].value,params_cal[i]['kx3'].value,params_cal[i]['ky2'].value,params_cal[i]['ky3'].value,params_cal[i]['kx4'].value,params_cal[i]['ky4'].value,
+                row = [os.path.abspath(catfile_list[i].strip()),params_cal[i]['norm'].value,params_cal[i]['kx0'].value,params_cal[i]['ky0'].value,params_cal[i]['kx'].value,params_cal[i]['ky'].value,
+                    params_cal[i]['kx2'].value,params_cal[i]['kx3'].value,params_cal[i]['ky2'].value,params_cal[i]['ky3'].value,params_cal[i]['kx4'].value,params_cal[i]['ky4'].value,params_cal[i]['kxy'].value,
                     params_cal[i]['amplitude'].value,params_cal[i]['center'].value,params_cal[i]['sigma'].value,params_cal[i]['gamma'].value,
                     params_cal[i]['pressure'].value,params_cal[i]['AOD'].value,params_cal[i]['alpha'].value,params_cal[i]['ozone_col'].value,
                     params_cal[i]['PW'].value,params_cal[i]['temperature'].value,params_cal[i]['r0'].value,params_cal[i]['r1'].value,params_cal[i]['r2'].value,params_cal[i]['r3'].value,params_cal[i]['r4'].value]
                 df_results.loc[i] = row
         else:
-            row = [catfile.strip(),params_cal['norm'].value,params_cal['kx0'].value,params_cal['ky0'].value,params_cal['kx'].value,params_cal['ky'].value,
-                params_cal['kx2'].value,params_cal['kx3'].value,params_cal['ky2'].value,params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,
+            row = [os.path.abspath(catfile.strip()),params_cal['norm'].value,params_cal['kx0'].value,params_cal['ky0'].value,params_cal['kx'].value,params_cal['ky'].value,
+                params_cal['kx2'].value,params_cal['kx3'].value,params_cal['ky2'].value,params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
                 params_cal['amplitude'].value,params_cal['center'].value,params_cal['sigma'].value,params_cal['gamma'].value,
                 params_cal['pressure'].value,params_cal['AOD'].value,params_cal['alpha'].value,params_cal['ozone_col'].value,
                 params_cal['PW'].value,params_cal['temperature'].value,params_cal['r0'].value,params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value]

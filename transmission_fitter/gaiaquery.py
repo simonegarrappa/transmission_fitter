@@ -258,10 +258,10 @@ class GaiaQuery(object):
                 g_Ra = df_gaia['g_ra'][i]
                 g_Dec = df_gaia['g_dec'][i]
                     
-                gaiaid_list.append(df_gaia['SOURCE_ID'][i])
+                gaiaid_list.append(df_gaia['source_id'][i])
                 lastid_list.append(int(last_idx_))
                     
-                new_row = {'GaiaDR3_ID':int(df_gaia['SOURCE_ID'][i]),'ang_sep':sep[last_idx_].to(u.arcsec).value,
+                new_row = {'GaiaDR3_ID':int(df_gaia['source_id'][i]),'ang_sep':sep[last_idx_].to(u.arcsec).value,
                             'LAST_SN':sn_,'LAST_FLUX_APER_3':flux_3_,'LAST_FLUXERR_APER_3':flux_3_err_,'LAST_num':int(last_idx_),'LAST_X':last_x,'LAST_Y':last_y,'G_color':gaia_color,'LAST_FLAGS':last_flags,
                             'G_mag':gaia_mag,'LAST_FLUX_PSF':flux_psf_,'LAST_FLUXERR_PSF':flux_psf_err_,'JD':jd_,'g_ra':g_Ra,'g_dec':g_Dec}
                

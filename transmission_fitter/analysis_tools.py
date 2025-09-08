@@ -307,8 +307,44 @@ class LAST_ABSCAL_Analysis(object):
         return params_list
             
 
-    def create_image_photometry_output(self, reference_cat,resfile = None,output_folder = None):
-
+    def create_image_photometry_output(self, reference_cat = None,resfile = None,output_folder = None):
+        """
+        Generate and save a photometry output table for sources in a reference catalog.
+        This method processes a reference catalog of astronomical sources, applies photometric calibration,
+        computes various photometric and image parameters, and outputs the results as a CSV file. The output
+        includes calibrated magnitudes, errors, fluxes, and additional source and image properties.
+        Parameters
+        ----------
+        reference_cat : str, optional
+            Path to the reference catalog file (e.g., a LAST catalog). Must be provided.
+        resfile : str, optional
+            Path to a file containing calibration results. If not provided, uses calibration parameters
+            from the current object (requires calibration to have been run previously).
+        output_folder : str, optional
+            Directory where the output CSV file will be saved. If not provided, saves in the same directory
+            as the reference catalog.
+        Returns
+        -------
+        matched_sources_df : pandas.DataFrame
+            DataFrame containing the photometry output for all sources in the reference catalog. Columns include:
+            - SOURCE_ID, RA, Dec, JD, MAG_PSF_AB, MAG_PSF_AB_ERR, MAG_APER_AB, MAG_APER_AB_ERR, AB_ZP, SN,
+                MAG_PSF_LAST, MAG_PSF_LAST_ERR, MAG_APER_LAST, MAG_APER_LAST_ERR, LAST_FLAGS, LAST_X, LAST_Y,
+                FWHM, ELLIPTICITY, FLUX_APER_3, FLUX_PSF, FIELD_CORR, LAST_X2, LAST_Y2, LAST_XY, LAST_BACK_IM,
+                LAST_BACK_ANNULUS
+        Raises
+        ------
+        ValueError
+            If `reference_cat` is not provided, or if calibration parameters are unavailable.
+        Notes
+        -----
+        - The method expects the reference catalog to be in a format compatible with `LastCatUtils`.
+        - Calibration is performed using the `AbsoluteCalibration` class.
+        - The output CSV file is named as `<reference_cat>_PhotometryOutput.csv`.
+        """
+        
+       
+        if reference_cat is None:
+            raise ValueError('Please provide a catalog file.')
         if resfile is None:
             try:
                 params_list = self.params_cal

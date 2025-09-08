@@ -307,8 +307,90 @@ class LAST_ABSCAL_Analysis(object):
         return params_list
             
 
+    def create_image_photometry_output(self, reference_cat,resfile = None,output_folder = None):
 
+        if resfile is None:
+            try:
+                params_list = self.params_cal
+            except:
+                raise ValueError('Please provide a resfile or run the calibration first.')
+        else:
+            params_list = self.get_params_from_calibrated_results(resfile)
+
+        last_cat_ref, info_cat_ref = LastCatUtils().tables_from_lastcat(reference_cat.strip());
+        last_cat_ref_apy = SkyCoord(ra=last_cat_ref['RA'], dec=last_cat_ref['Dec'], unit='deg', frame='icrs')
+        colnames_df = ['SOURCE_ID', 'RA', 'Dec', 'JD', 'MAG_PSF_AB', 'MAG_PSF_AB_ERR','MAG_APER_AB','MAG_APER_AB_ERR', 
+                       'AB_ZP', 'SN', 'MAG_PSF_LAST', 'MAG_PSF_LAST_ERR','MAG_APER_LAST', 'MAG_APER_LAST_ERR','LAST_FLAGS','LAST_X','LAST_Y','FWHM',
+                       'ELLIPTICITY','FLUX_APER_3','FLUX_PSF','FIELD_CORR','LAST_X2','LAST_Y2','LAST_XY','LAST_BACK_IM','LAST_BACK_ANNULUS']
+        matched_sources_df = pd.DataFrame(columns=colnames_df)
+
+        matched_sources_df = matched_sources_df.astype({'SOURCE_ID': 'int', 'RA': 'float', 'Dec': 'float', 'JD': 'float',
+                                                        'MAG_PSF_AB': 'float', 'MAG_PSF_AB_ERR': 'float',
+                                                        'MAG_APER_AB': 'float', 'MAG_APER_AB_ERR': 'float', 'AB_ZP': 'float',
+                                                        'SN': 'float', 'MAG_PSF_LAST': 'float', 'MAG_PSF_LAST_ERR': 'float',
+                                                        'MAG_APER_LAST': 'float', 'MAG_APER_LAST_ERR': 'float','LAST_FLAGS':'float','LAST_X':'float','LAST_Y':'float','FWHM':'float','ELLIPTICITY':'float',
+                                                        'FLUX_APER_3':'float','FLUX_PSF':'float','FIELD_CORR':'float','LAST_X2':'float','LAST_Y2':'float','LAST_XY':'float',
+                                                        'LAST_BACK_IM':'float','LAST_BACK_ANNULUS':'float'})
+        if 'coadd' in reference_cat:
+            n_coadd  = info_cat_ref.header['NCOADD']
+        else:
+            n_coadd = 1 
         
+        sn_ = last_cat_ref['SN']
+        flux_psf_ = n_coadd*last_cat_ref['FLUX_PSF'] / info_cat_ref.header['EXPTIME']
+        flux_aper_ = n_coadd*last_cat_ref['FLUX_APER_3'] / info_cat_ref.header['EXPTIME']
+        last_x = last_cat_ref['X']
+        last_y = last_cat_ref['Y']
+        last_x2 = last_cat_ref['X2']
+        last_y2 = last_cat_ref['Y2']
+        last_xy = last_cat_ref['XY']
+        last_back_im = last_cat_ref['BACK_IM']
+        last_back_annulus = last_cat_ref['BACK_ANNULUS']
+        last_flags = last_cat_ref['FLAGS']
+        x_c = np.array([last_x, last_y])
+
+        abscal_obj = AbsoluteCalibration(catfile=reference_cat.strip(),useHTM=self.useHTM,use_atm=self.use_atm)
+
+        abzp_ = abscal_obj.ResidFunc(params_list[j], x_c, calc_zp=True)
+        fc_ = abscal_obj.ResidFunc(params_list[j],x_c,calc_zp=True,field_corr_ = True)
+
+        abmag_psf_ = abzp_ - 2.5 * np.log10(flux_psf_)
+        abmag_psf_err = 1.086 / sn_
+
+        abmag_aper_ = abzp_ - 2.5 * np.log10(flux_aper_)
+        abmag_aper_err = 1.086 / sn_
+
+        ellepticity_ = 1 - (info_cat_ref.header['MED_B'] / info_cat_ref.header['MED_A'])
+        try:
+            fwhm_ = info_cat_ref.header['FWHM']
+        except:
+            fwhm_ = 999.0
+        
+        idx_match_ref = range(len(last_cat_ref))
+
+        df_i_dict = {'SOURCE_ID': idx_match_ref, 'RA': last_cat_ref['RA'],
+                        'Dec': last_cat_ref['Dec'], 'JD': info_cat_ref.header['JD'] * np.ones(len(idx_match_ref)),
+                        'MAG_PSF_AB': abmag_psf_, 'MAG_PSF_AB_ERR': abmag_psf_err,
+                        'MAG_APER_AB': abmag_aper_, 'MAG_APER_AB_ERR': abmag_aper_err, 'AB_ZP': abzp_, 'SN': sn_,
+                        'MAG_PSF_LAST': last_cat_ref['MAG_PSF'], 'MAG_PSF_LAST_ERR': abmag_psf_err,
+                        'MAG_APER_LAST': last_cat_ref['MAG_APER_3'],
+                        'MAG_APER_LAST_ERR': last_cat_ref['MAGERR_APER_3'],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,
+                        'FWHM':fwhm_,'ELLIPTICITY':ellepticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
+                        'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus}
+
+        matched_sources_df = pd.concat([matched_sources_df, pd.DataFrame(df_i_dict)], ignore_index=True)
+
+        reference_cat_noext = os.path.splitext(reference_cat)[0]
+        if output_folder is not None:
+            if not os.path.exists(output_folder):
+                os.makedirs(output_folder)
+            reference_cat_noext = os.path.join(output_folder,os.path.basename(reference_cat_noext))
+        
+        pd.to_csv(matched_sources_df, reference_cat_noext + '_PhotometryOutput.csv', index=False)
+
+        return matched_sources_df
+
+
 
 
     def create_matchedsource_df(self, resfile=None,min_jd = None,max_jd = None,coor_target = None):

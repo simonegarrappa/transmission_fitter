@@ -366,12 +366,12 @@ class AbsoluteCalibration(object):
 
         if calc_zp:
             Fnu = 3631.e-26 ## zero-flux for AB system
-            a = scipy.integrate.trapz(Fnu*transm_full/self.wvl_arr,x=self.wvl_arr)
+            a = scipy.integrate.trapezoid(Fnu*transm_full/self.wvl_arr,x=self.wvl_arr)
             b = h.value
             xcoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[0]-max_coor)+max_coortr #(x_in[0] - 863.)/1726. 
             ycoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[1]-max_coor)+max_coortr #(x_in[1] - 863.)/1726. 
         else:    
-            a = scipy.integrate.trapz(transm_full*x_in[:,0:-2]*self.wvl_arr,x=self.wvl_arr)
+            a = scipy.integrate.trapezoid(transm_full*x_in[:,0:-2]*self.wvl_arr,x=self.wvl_arr)
             b = h.value*c.value*1e9
             xcoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[:,-2]-max_coor)+max_coortr #(x_in[:,-2] - 863.)/1726. 
             ycoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[:,-1]-max_coor)+max_coortr #(x_in[:,-1] - 863.)/1726. 
@@ -385,7 +385,7 @@ class AbsoluteCalibration(object):
         Cheb_xy_x = Chebyshev([0.,parvals['kxy']])
         Cheb_xy_y = Chebyshev([0.,parvals['kxy']])
 
-        model = 2.5*np.log10(parvals['norm']*dt*Ageom*a/b) + Cheb_x(xcoor_) + Cheb_y(ycoor_) + parvals['kx0'] + Cheb_xy_x(xcoor_)*Cheb_xy_y(ycoor_)
+        model = 2.5*np.log10(parvals['norm']*dt*Ageom*a/b)  + (Cheb_x(xcoor_) + Cheb_y(ycoor_) + parvals['kx0'] + Cheb_xy_x(xcoor_)*Cheb_xy_y(ycoor_))
         if calc_zp and not field_corr_:
             return model
         if field_corr_ and calc_zp:
@@ -615,7 +615,7 @@ class AbsoluteCalibration(object):
         transm_full = transmission
         
         # Calculate flux (model)
-        a = scipy.integrate.trapz(transm_full*x_in*wvl_arr_,x=wvl_arr_)
+        a = scipy.integrate.trapezoid(transm_full*x_in*wvl_arr_,x=wvl_arr_)
         
         b = h.value*c.value*1e9
         dt = 1.#20.
@@ -646,22 +646,6 @@ class AbsoluteCalibration(object):
         print('Spectra retrieved for catalog file: ' + self.catfile)
         return source_ids, calibrated_spectra, sampling, df_match
     
-    def match_Gaia_OLD(self):
-        """
-        Match with GAIA.
-
-        Returns:
-        - source_ids (list): The list of source IDs.
-        - tables (list): The list of tables.
-        - df_match (pandas.DataFrame): The matching dataframe.
-
-        """
-        source_ids, tables, df_match = GaiaQuery(self.catfile).retrieve_gaia_spectra()
-        self.source_ids = source_ids
-        self.tables = tables
-        self.df_match = df_match
-        print('Spectra retrieved for catalog file: ' + self.catfile)
-        return source_ids, tables, df_match
     
     def fit_transmission(self):
         """

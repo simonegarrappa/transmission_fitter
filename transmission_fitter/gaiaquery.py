@@ -3,6 +3,7 @@ from astroquery.gaia import Gaia
 import astropy.units as u
 import astropy.io.fits as pyfit
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
 import pandas as pd
 import numpy as np
 from .lastcatutils import LastCatUtils
@@ -25,7 +26,7 @@ class GaiaQuery(object):
         retrieve_gaia_spectra: Retrieves Gaia spectra for the matched sources.
     """
 
-    def __init__(self, catfile):
+    def __init__(self, catfile = None):
         """
         Initializes a GaiaQuery object.
 
@@ -37,6 +38,11 @@ class GaiaQuery(object):
 
 
         self.catfile = catfile
+
+        if catfile is None:
+            self.nonvalid_catalog = True
+            print('No catalog file provided, I will work only with utilities.')
+            return
         
         last_cat, info_cat = LastCatUtils().tables_from_lastcat(catfile)
 
@@ -84,9 +90,9 @@ class GaiaQuery(object):
         self.cRa = coor_center.ra
         self.cDec = coor_center.dec
         self.sep_subframe = sep_subframe
-
+        print('Create query with proper motions...')
         if Ra_max < 360.:
-            query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, ra_error AS g_ra_err, dec_error AS g_dec_err, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
+            query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, gaia.pmra AS g_pmra, gaia.pmdec AS g_pmdec, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
             FROM gaiadr3.gaia_source AS gaia \
             WHERE DISTANCE(POINT("+str(cRa)+","+str(cDec)+"),POINT(gaia.ra, gaia.dec)) < "+str(sep_subframe.deg)+" AND \
             has_xp_continuous = 'TRUE' AND \
@@ -96,7 +102,7 @@ class GaiaQuery(object):
         else:
             print('Ra_max > 360 deg!')
             Ra_max = Ra_max - 360.
-            query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, ra_error AS g_ra_err, dec_error AS g_dec_err, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
+            query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, gaia.pmra AS g_pmra, gaia.pmdec AS g_pmdec, ra_error AS g_ra_err, dec_error AS g_dec_err, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
             FROM gaiadr3.gaia_source AS gaia \
             WHERE (gaia.ra BETWEEN "+str(0.)+" AND "+str(Ra_max)+" OR \
             gaia.ra BETWEEN "+str(Ra_min)+" AND "+str(360.)+") AND \
@@ -108,49 +114,45 @@ class GaiaQuery(object):
 
         return query
     
-    def create_query_OLD(self):
+    def create_general_query(self,cRa,cDec,sep_subframe):
         """
-        Creates a query string for querying Gaia catalog based on the catalog information.
-
-        Returns:
-            query (str): The query string for querying Gaia catalog.
+        Construct an ADQL query string to retrieve Gaia DR3 sources near a given sky position.
+        The query selects the following columns from gaiadr3.gaia_source:
+        - source_id
+        - ra AS g_ra
+        - dec AS g_dec
+        - pmra AS g_pmra
+        - pmdec AS g_pmdec
+        - teff_gspphot AS g_teff
+        - phot_g_mean_mag AS g_mag
+        - bp_rp AS g_color
+        It applies a spatial filter using ADQL's DISTANCE and POINT functions to include only
+        sources within the specified angular separation from the provided center.
+        Parameters
+        ----------
+        cRa : float
+            Right ascension of the search center in degrees (ICRS).
+        cDec : float
+            Declination of the search center in degrees (ICRS).
+        sep_subframe : object
+            Angular radius of the search region; must provide a .deg attribute (degrees).
+        Returns
+        -------
+        str
+            An ADQL query string targeting gaiadr3.gaia_source with the selected columns and
+            a distance-based spatial constraint.
+        Side Effects
+        ------------
+        Prints a status message to stdout indicating that the query is being created.
         """
-        info_cat = self.info_cat
-
-        Ra_min = info_cat.header['RA1']
-        Ra_max = info_cat.header['RA2']
-
-        Dec_min = info_cat.header['DEC1']
-        Dec_max = info_cat.header['DEC4']
-        cRa = info_cat.header['RA']
-        cDec = info_cat.header['DEC']
-        coor_1 = SkyCoord(ra=info_cat.header['RA1'], dec=info_cat.header['DEC1'], unit='deg', frame='icrs')
+           
         
-        coor_center = SkyCoord(ra=cRa, dec=cDec, unit='deg', frame='icrs')
+        print('Create query with proper motions...')
         
-        sep_subframe = coor_center.separation(coor_1)
-
-        if Ra_max < 360.:
-            query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, ra_error AS g_ra_err, dec_error AS g_dec_err, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
+        query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, gaia.pmra AS g_pmra, gaia.pmdec AS g_pmdec, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
             FROM gaiadr3.gaia_source AS gaia \
-            WHERE gaia.ra BETWEEN "+str(Ra_min)+" AND "+str(Ra_max)+" AND \
-            gaia.dec BETWEEN "+str(Dec_min)+" AND "+str(Dec_max)+" AND \
-            has_xp_continuous = 'TRUE' AND \
-            phot_g_mean_mag > 12 AND \
-            classprob_dsc_combmod_star > 0.9 AND \
-            phot_g_mean_mag < 15."
-        else:
-            print('Ra_max > 360 deg!')
-            Ra_max = Ra_max - 360.
-            query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, ra_error AS g_ra_err, dec_error AS g_dec_err, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
-            FROM gaiadr3.gaia_source AS gaia \
-            WHERE (gaia.ra BETWEEN "+str(0.)+" AND "+str(Ra_max)+" OR \
-            gaia.ra BETWEEN "+str(Ra_min)+" AND "+str(360.)+") AND \
-            gaia.dec BETWEEN "+str(Dec_min)+" AND "+str(Dec_max)+" AND \
-            has_xp_continuous = 'TRUE' AND \
-            phot_g_mean_mag > 12 AND \
-            classprob_dsc_combmod_star > 0.9 AND \
-            phot_g_mean_mag < 15."
+            WHERE DISTANCE(POINT("+str(cRa)+","+str(cDec)+"),POINT(gaia.ra, gaia.dec)) < "+str(sep_subframe.deg)+ "."
+        
 
         return query
     
@@ -170,6 +172,8 @@ class GaiaQuery(object):
         results = job.get_results()
 
         df_gaia = results.to_pandas()
+        df_gaia['g_pmra'].fillna(0., inplace=True)
+        df_gaia['g_pmdec'].fillna(0.,inplace=True)
         return df_gaia
     
     
@@ -182,6 +186,7 @@ class GaiaQuery(object):
             df_match (DataFrame): DataFrame containing the matched sources from both catalogs.
         """
         start_query = time.time()
+        
         df_gaia_raw = self.run_query_to_pandas(self.create_query())
         
         print('Query time: ',time.time()-start_query)
@@ -200,8 +205,12 @@ class GaiaQuery(object):
 
         coord_last_cat = SkyCoord(ra=last_cat['RA'], dec=last_cat['DEC'], unit='deg', frame='icrs')
 
-        coor_gaia_raw = SkyCoord(ra=df_gaia_raw['g_ra'], dec=df_gaia_raw['g_dec'], unit='deg', frame='icrs',equinox='J2016')
-
+        coor_gaia_raw_2016 = SkyCoord(ra=df_gaia_raw['g_ra'].values*u.deg, dec=df_gaia_raw['g_dec'].values*u.deg,
+                                 pm_ra_cosdec=df_gaia_raw['g_pmra'].values * u.mas/u.yr,
+                                 pm_dec=df_gaia_raw['g_pmdec'].values * u.mas/u.yr,
+                                 frame='icrs', obstime=Time(2016.0, format="jyear"))
+       
+        coor_gaia_raw = coor_gaia_raw_2016.apply_space_motion(new_obstime=Time(info_cat.header['JD'], format='jd'))
         idx_raw, d2d_raw, d3d_raw = coord_last_cat.match_to_catalog_sky(coor_gaia_raw)
         mask_sep_raw = d2d_raw < 2.*u.arcsec
         
@@ -214,10 +223,9 @@ class GaiaQuery(object):
 
         start = time.time()
         for i in range(len(df_gaia)):
-            
-            coord_0 = SkyCoord(ra=df_gaia['g_ra'][i], dec=df_gaia['g_dec'][i], unit='deg', frame='icrs',equinox='J2016')
-            
-                
+
+            coord_0 = SkyCoord(ra=df_gaia['g_ra'][i], dec=df_gaia['g_dec'][i], unit='deg', frame='icrs', obstime=Time(info_cat.header['JD'], format='jd'))
+
             sep = coord_0.separation(coord_last_cat)
                 
             mask_sep = sep < 2.*u.arcsec
@@ -283,6 +291,69 @@ class GaiaQuery(object):
         print('Matching time: ',time.time()-start)
         return df_match
     
+
+    def match_matchedsources_and_gaia(self, matched_sources_df=None):
+
+        if matched_sources_df is None:
+            print('No matched sources DataFrame provided!')
+            return None
+        unique_source_ids = matched_sources_df['SOURCE_ID'].unique()
+        for source_id in unique_source_ids:
+            row = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id].iloc[0]
+            if not hasattr(self, "_collected_rows"):
+                self._collected_rows = []
+            self._collected_rows.append(row.to_dict())
+        unique_df = pd.DataFrame(self._collected_rows)
+            
+        coord_ms = SkyCoord(ra=unique_df['RA'], dec=unique_df['Dec'], unit='deg', frame='icrs')
+
+        # Compute spherical centroid and enclosing radius
+        if len(coord_ms) == 0:
+            raise ValueError("No coordinates available to define a search region.")
+
+        # Convert to Cartesian unit vectors and average
+        xyz = coord_ms.cartesian.xyz.value  # shape (3, N)
+        v_mean = xyz.mean(axis=1)
+        norm = np.linalg.norm(v_mean)
+        if norm == 0:
+            raise ValueError("Degenerate centroid vector.")
+        v_unit = v_mean / norm
+
+        center_cart = SkyCoord(x=v_unit[0], y=v_unit[1], z=v_unit[2],
+                               frame='icrs', representation_type='cartesian')
+        center_sph = center_cart.spherical
+
+        center_coord = SkyCoord(ra=center_sph.lon, dec=center_sph.lat, frame='icrs')
+        radius = coord_ms.separation(center_coord).max()
+
+        # Store for later use
+        cRa = center_coord.ra
+        cDec = center_coord.dec
+        sep_subframe = radius.deg
+
+        
+        ## GOT HERE ##
+        start_query = time.time()
+    
+        df_gaia_raw = self.run_query_to_pandas(self.create_general_query(cRa=cRa.deg,cDec=cDec.deg,sep_subframe=sep_subframe*u.deg))
+        
+        print('Query time: ',time.time()-start_query)
+        coor_gaia_raw_2016 = SkyCoord(ra=df_gaia_raw['g_ra'].values*u.deg, dec=df_gaia_raw['g_dec'].values*u.deg,
+                                 pm_ra_cosdec=df_gaia_raw['g_pmra'].values * u.mas/u.yr,
+                                 pm_dec=df_gaia_raw['g_pmdec'].values * u.mas/u.yr,
+                                 frame='icrs', obstime=Time(2016.0, format="jyear"))
+       
+        coor_gaia_raw = coor_gaia_raw_2016.apply_space_motion(new_obstime=Time(info_cat.header['JD'], format='jd'))
+        idx_raw, d2d_raw, d3d_raw = coord_last_cat.match_to_catalog_sky(coor_gaia_raw)
+        mask_sep_raw = d2d_raw < 2.*u.arcsec
+        
+        idx_match_raw = idx_raw[mask_sep_raw]
+        df_gaia = df_gaia_raw.iloc[idx_match_raw].reset_index(drop=True)
+        
+
+        
+
+        
 
     def retrieve_gaia_spectra(self,useHTM=False):
         """
@@ -353,5 +424,24 @@ class GaiaQuery(object):
 
 
             return source_ids, calibrated_spectra, sampling, df_match
+
+    def retrieve_gaia_spectra_from_ids(self, source_ids):
+        """
+        Retrieves Gaia spectra using the provided source IDs.
+
+        Parameters:
+            source_ids (list): List of Gaia source IDs.
+
+        Returns:
+            calibrated_spectra (array): Calibrated spectra.
+            sampling (float): Sampling rate.
+        """
+        calibrated_spectra, sampling = gaiaxpy.calibrate(source_ids)
+        return calibrated_spectra, sampling
+    
+
+
+    
+
     
     

@@ -10,6 +10,7 @@ from .lastcatutils import LastCatUtils
 import gaiaxpy
 import catsHTM
 import time
+import os
 
 
 class GaiaQuery(object):
@@ -26,16 +27,30 @@ class GaiaQuery(object):
         retrieve_gaia_spectra: Retrieves Gaia spectra for the matched sources.
     """
 
-    def __init__(self, catfile = None):
+    def __init__(self, catfile = None,login_gaia=False):
         """
         Initializes a GaiaQuery object.
 
         Parameters:
             catfile (str): The path to the catalog file.
         """
-        
-        #Gaia.MAIN_GAIA_TABLE = "gaiadr3.gaia_source"
-
+        if login_gaia:
+            Gaia.MAIN_GAIA_TABLE = "gaiadr3.gaia_source"
+            self.logged_in = False
+            user = os.environ.get('GAIA_USER') or os.environ.get('ESA_GAIA_USER')
+            password = os.environ.get('GAIA_PASSWORD') or os.environ.get('ESA_GAIA_PASSWORD')
+            try:
+                if user and password:
+                    Gaia.login(user=user, password=password, verbose=True)
+                    self.logged_in = True
+                else:
+                    try:
+                        Gaia.login(verbose=False)  # will use keyring/.netrc if configured; no prompt in non-interactive
+                        self.logged_in = True
+                    except Exception:
+                        print('Gaia login skipped: no credentials found, continuing anonymously.')
+            except Exception as e:
+                print(f'Gaia login failed: {e}. Continuing anonymously.')
 
         self.catfile = catfile
 
@@ -151,7 +166,7 @@ class GaiaQuery(object):
         
         query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, gaia.pmra AS g_pmra, gaia.pmdec AS g_pmdec, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
             FROM gaiadr3.gaia_source AS gaia \
-            WHERE DISTANCE(POINT("+str(cRa)+","+str(cDec)+"),POINT(gaia.ra, gaia.dec)) < "+str(sep_subframe.deg)+ "."
+            WHERE DISTANCE(POINT("+str(cRa)+","+str(cDec)+"),POINT(gaia.ra, gaia.dec)) < "+str(sep_subframe.deg)
         
 
         return query
@@ -292,63 +307,7 @@ class GaiaQuery(object):
         return df_match
     
 
-    def match_matchedsources_and_gaia(self, matched_sources_df=None):
-
-        if matched_sources_df is None:
-            print('No matched sources DataFrame provided!')
-            return None
-        unique_source_ids = matched_sources_df['SOURCE_ID'].unique()
-        for source_id in unique_source_ids:
-            row = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id].iloc[0]
-            if not hasattr(self, "_collected_rows"):
-                self._collected_rows = []
-            self._collected_rows.append(row.to_dict())
-        unique_df = pd.DataFrame(self._collected_rows)
-            
-        coord_ms = SkyCoord(ra=unique_df['RA'], dec=unique_df['Dec'], unit='deg', frame='icrs')
-
-        # Compute spherical centroid and enclosing radius
-        if len(coord_ms) == 0:
-            raise ValueError("No coordinates available to define a search region.")
-
-        # Convert to Cartesian unit vectors and average
-        xyz = coord_ms.cartesian.xyz.value  # shape (3, N)
-        v_mean = xyz.mean(axis=1)
-        norm = np.linalg.norm(v_mean)
-        if norm == 0:
-            raise ValueError("Degenerate centroid vector.")
-        v_unit = v_mean / norm
-
-        center_cart = SkyCoord(x=v_unit[0], y=v_unit[1], z=v_unit[2],
-                               frame='icrs', representation_type='cartesian')
-        center_sph = center_cart.spherical
-
-        center_coord = SkyCoord(ra=center_sph.lon, dec=center_sph.lat, frame='icrs')
-        radius = coord_ms.separation(center_coord).max()
-
-        # Store for later use
-        cRa = center_coord.ra
-        cDec = center_coord.dec
-        sep_subframe = radius.deg
-
-        
-        ## GOT HERE ##
-        start_query = time.time()
     
-        df_gaia_raw = self.run_query_to_pandas(self.create_general_query(cRa=cRa.deg,cDec=cDec.deg,sep_subframe=sep_subframe*u.deg))
-        
-        print('Query time: ',time.time()-start_query)
-        coor_gaia_raw_2016 = SkyCoord(ra=df_gaia_raw['g_ra'].values*u.deg, dec=df_gaia_raw['g_dec'].values*u.deg,
-                                 pm_ra_cosdec=df_gaia_raw['g_pmra'].values * u.mas/u.yr,
-                                 pm_dec=df_gaia_raw['g_pmdec'].values * u.mas/u.yr,
-                                 frame='icrs', obstime=Time(2016.0, format="jyear"))
-       
-        coor_gaia_raw = coor_gaia_raw_2016.apply_space_motion(new_obstime=Time(info_cat.header['JD'], format='jd'))
-        idx_raw, d2d_raw, d3d_raw = coord_last_cat.match_to_catalog_sky(coor_gaia_raw)
-        mask_sep_raw = d2d_raw < 2.*u.arcsec
-        
-        idx_match_raw = idx_raw[mask_sep_raw]
-        df_gaia = df_gaia_raw.iloc[idx_match_raw].reset_index(drop=True)
         
 
         

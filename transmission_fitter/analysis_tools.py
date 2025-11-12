@@ -26,6 +26,9 @@ from astroquery.gaia import Gaia
 from .gaiaquery import GaiaQuery
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from sklearn.linear_model import LinearRegression
+import time
+from astropy.time import Time
+
 
 
 class LAST_ABSCAL_Analysis(object):
@@ -48,6 +51,9 @@ class LAST_ABSCAL_Analysis(object):
         self.current_dir = os.path.dirname(__file__)
         self.cal_results_dir = None
         self.single_output = True
+        self.obs_location = EarthLocation(lat=30.0529838 * u.deg, lon=35.0407331 * u.deg, height=415.4 * u.m)
+
+        
         
 
         pass
@@ -327,7 +333,7 @@ class LAST_ABSCAL_Analysis(object):
         last_cat_ref_apy = SkyCoord(ra=last_cat_ref['RA'], dec=last_cat_ref['Dec'], unit='deg', frame='icrs')
         colnames_df = ['SOURCE_ID', 'RA', 'Dec', 'JD', 'MAG_PSF_AB', 'MAG_PSF_AB_ERR','MAG_APER_AB','MAG_APER_AB_ERR', 
                        'AB_ZP', 'SN', 'MAG_PSF_LAST', 'MAG_PSF_LAST_ERR','MAG_APER_LAST', 'MAG_APER_LAST_ERR','LAST_FLAGS','LAST_X','LAST_Y','FWHM',
-                       'ELLIPTICITY','FLUX_APER_3','FLUX_PSF','FIELD_CORR','LAST_X2','LAST_Y2','LAST_XY','LAST_BACK_IM','LAST_BACK_ANNULUS']
+                       'ELLIPTICITY','FLUX_APER_3','FLUX_PSF','FIELD_CORR','LAST_X2','LAST_Y2','LAST_XY','LAST_BACK_IM','LAST_BACK_ANNULUS','BP_RP','GaiaDR3_ID']
         matched_sources_df = pd.DataFrame(columns=colnames_df)
 
         matched_sources_df = matched_sources_df.astype({'SOURCE_ID': 'int', 'RA': 'float', 'Dec': 'float', 'JD': 'float',
@@ -336,7 +342,7 @@ class LAST_ABSCAL_Analysis(object):
                                                         'SN': 'float', 'MAG_PSF_LAST': 'float', 'MAG_PSF_LAST_ERR': 'float',
                                                         'MAG_APER_LAST': 'float', 'MAG_APER_LAST_ERR': 'float','LAST_FLAGS':'float','LAST_X':'float','LAST_Y':'float','FWHM':'float','ELLIPTICITY':'float',
                                                         'FLUX_APER_3':'float','FLUX_PSF':'float','FIELD_CORR':'float','LAST_X2':'float','LAST_Y2':'float','LAST_XY':'float',
-                                                        'LAST_BACK_IM':'float','LAST_BACK_ANNULUS':'float'})
+                                                        'LAST_BACK_IM':'float','LAST_BACK_ANNULUS':'float','BP_RP':'float','GaiaDR3_ID':'int'})
         if 'coadd' in reference_cat:
             n_coadd  = info_cat_ref.header['NCOADD']
         else:
@@ -382,7 +388,7 @@ class LAST_ABSCAL_Analysis(object):
                         'MAG_APER_LAST': last_cat_ref['MAG_APER_3'],
                         'MAG_APER_LAST_ERR': last_cat_ref['MAGERR_APER_3'],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,
                         'FWHM':fwhm_,'ELLIPTICITY':ellepticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
-                        'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus}
+                        'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus,'BP_RP':np.nan*np.ones(len(idx_match_ref)),'GaiaDR3_ID':np.nan*np.ones(len(idx_match_ref))}
 
         matched_sources_df = pd.concat([matched_sources_df, pd.DataFrame(df_i_dict)], ignore_index=True)
 
@@ -455,7 +461,7 @@ class LAST_ABSCAL_Analysis(object):
         last_cat_ref_apy = SkyCoord(ra=last_cat_ref['RA'], dec=last_cat_ref['Dec'], unit='deg', frame='icrs')
         colnames_df = ['SOURCE_ID', 'RA', 'Dec', 'JD', 'MAG_PSF_AB', 'MAG_PSF_AB_ERR','MAG_APER_AB','MAG_APER_AB_ERR', 
                        'AB_ZP', 'SN', 'MAG_PSF_LAST', 'MAG_PSF_LAST_ERR','MAG_APER_LAST', 'MAG_APER_LAST_ERR','LAST_FLAGS','LAST_X','LAST_Y','FWHM',
-                       'ELLIPTICITY','FLUX_APER_3','FLUX_PSF','FIELD_CORR','LAST_X2','LAST_Y2','LAST_XY','LAST_BACK_IM','LAST_BACK_ANNULUS']
+                       'ELLIPTICITY','FLUX_APER_3','FLUX_PSF','FIELD_CORR','LAST_X2','LAST_Y2','LAST_XY','LAST_BACK_IM','LAST_BACK_ANNULUS','BP_RP','GaiaDR3_ID','MAG_APER_AB_CORR','MAG_PSF_AB_CORR','AIRMASS']
         matched_sources_df = pd.DataFrame(columns=colnames_df)
 
         matched_sources_df = matched_sources_df.astype({'SOURCE_ID': 'int', 'RA': 'float', 'Dec': 'float', 'JD': 'float',
@@ -464,7 +470,7 @@ class LAST_ABSCAL_Analysis(object):
                                                         'SN': 'float', 'MAG_PSF_LAST': 'float', 'MAG_PSF_LAST_ERR': 'float',
                                                         'MAG_APER_LAST': 'float', 'MAG_APER_LAST_ERR': 'float','LAST_FLAGS':'float','LAST_X':'float','LAST_Y':'float','FWHM':'float','ELLIPTICITY':'float',
                                                         'FLUX_APER_3':'float','FLUX_PSF':'float','FIELD_CORR':'float','LAST_X2':'float','LAST_Y2':'float','LAST_XY':'float',
-                                                        'LAST_BACK_IM':'float','LAST_BACK_ANNULUS':'float'})
+                                                        'LAST_BACK_IM':'float','LAST_BACK_ANNULUS':'float','BP_RP':'float','GaiaDR3_ID':'int','MAG_APER_AB_CORR':'float','MAG_PSF_AB_CORR':'float','AIRMASS':'float'})
 
         match_radius = self.match_radius
         print('Matching sources with a radius of {} arcsec'.format(match_radius))
@@ -515,6 +521,12 @@ class LAST_ABSCAL_Analysis(object):
             except:
                 fwhm_ = 999.0
             
+            ## Calculate source airmass
+            obstime = Time(info_cat.header['JD'], format='jd')
+            altaz_frame = AltAz(obstime=obstime, location=self.obs_location)
+            sources_coord = SkyCoord(ra=last_cat['RA'][mask_match], dec=last_cat['Dec'][mask_match], unit='deg', frame='icrs').transform_to(altaz_frame)
+
+            airmass_ = sources_coord.secz.value
 
             df_i_dict = {'SOURCE_ID': idx_match_ref, 'RA': last_cat['RA'][mask_match],
                          'Dec': last_cat['Dec'][mask_match], 'JD': info_cat.header['JD'] * np.ones(len(idx_match_ref)),
@@ -524,16 +536,25 @@ class LAST_ABSCAL_Analysis(object):
                          'MAG_APER_LAST': last_cat['MAG_APER_3'][mask_match],
                          'MAG_APER_LAST_ERR': last_cat['MAGERR_APER_3'][mask_match],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,
                          'FWHM':fwhm_,'ELLIPTICITY':ellepticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
-                         'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus}
+                         'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus,
+                         'BP_RP':np.full(len(idx_match_ref), np.nan),'GaiaDR3_ID':np.full(len(idx_match_ref), np.nan),
+                         'MAG_APER_AB_CORR':np.full(len(idx_match_ref), np.nan),'MAG_PSF_AB_CORR':np.full(len(idx_match_ref), np.nan),'AIRMASS':airmass_}
 
             matched_sources_df = pd.concat([matched_sources_df, pd.DataFrame(df_i_dict)], ignore_index=True)
 
         self.df_matchedsources = matched_sources_df
-        #self.catlist = catlist
+
+        matched_sources_df_wGaia = self.match_matchedsources_and_gaia()
+
+        self.df_matchedsources = matched_sources_df_wGaia
+
+        matched_sources_df = self.make_airmass_corr_magnitudes(matched_sources_df_wGaia)
+        self.df_matchedsources = matched_sources_df
+        
 
         return matched_sources_df
     
-    def make_airmass_corr_magnitudes(self, matched_sources_df):
+    def make_airmass_corr_magnitudes(self,ms_,outfile=None):
         """
         Applies airmass correction to the magnitudes in the matched sources DataFrame.
 
@@ -544,29 +565,160 @@ class LAST_ABSCAL_Analysis(object):
         - matched_sources_df_corr (pd.DataFrame): DataFrame with airmass-corrected magnitudes.
 
         """
-        matched_sources_df_corr = matched_sources_df.copy()
+        
+        matched_sources_df = ms_
+        if matched_sources_df is None:
+            print('No matched sources DataFrame provided!')
+            return None
+        
+        gaia_ids_ = []
+        amass_slopes = []
+        gaia_colors = []
+        unique_times = matched_sources_df['JD'].unique()
+        for gaia_id in matched_sources_df['GaiaDR3_ID'].unique():
+            if pd.isna(gaia_id):
+                continue
+            df_source_0 = matched_sources_df[(matched_sources_df['GaiaDR3_ID'] == gaia_id) & (~matched_sources_df['GaiaDR3_ID'].isna())& (~matched_sources_df['MAG_APER_AB'].isna())]
 
-        ## Calculate airmass for each source based on its RA, Dec, and JD
+            if len(df_source_0) < 0.5 * len(unique_times) or df_source_0['MAG_APER_AB'].mean() > 16.:
+                continue
+            df_source = df_source_0.sort_values(by='JD')
+            X = df_source['AIRMASS'].values.reshape(-1, 1)
+            y = df_source['MAG_APER_AB'].values
+            reg = LinearRegression().fit(X, y)
+            slope = reg.coef_[0]
+            intercept = reg.intercept_
+            gaia_color = df_source['BP_RP'].values[0]
+            gaia_ids_.append(gaia_id)
+            amass_slopes.append(slope)
+            gaia_colors.append(gaia_color)
+        
+        df_amass_slopes = pd.DataFrame({'GaiaDR3_ID': gaia_ids_, 'AIRMASS_SLOPE': amass_slopes, 'BP_RP': gaia_colors})
 
 
-        ## Get coordinates for the first line corresponding to each unique SOURCE_ID
-        unique_source_ids = matched_sources_df_corr['SOURCE_ID'].unique()
-        coords_list = []
+        X_colors = df_amass_slopes['BP_RP'].values.reshape(-1, 1)
+        y_slopes = df_amass_slopes['AIRMASS_SLOPE'].values
+        reg_color_slope = LinearRegression().fit(X_colors, y_slopes)
+        slope_color = reg_color_slope.coef_[0]
+        intercept_color = reg_color_slope.intercept_
+        print('Airmass slope vs. color relation: slope = {}, intercept = {}'.format(slope_color, intercept_color))
+        print('Applying airmass correction to magnitudes...')
+        for i, row in matched_sources_df.iterrows():
+            gaia_id = row['GaiaDR3_ID']
+            if pd.isna(gaia_id):
+                continue
+            gaia_color = row['BP_RP']
+            airmass_slope = slope_color * gaia_color + intercept_color
+            mag_aper_ab = row['MAG_APER_AB']
+            airmass = row['AIRMASS']
+            mag_aper_ab_corr = mag_aper_ab - airmass_slope * (airmass - 1.0)
+            mag_psf_ab = row['MAG_PSF_AB']
+            mag_psf_ab_corr = mag_psf_ab - airmass_slope * (airmass - 1.0)
+            matched_sources_df.at[i, 'MAG_APER_AB_CORR'] = mag_aper_ab_corr
+            matched_sources_df.at[i, 'MAG_PSF_AB_CORR'] = mag_psf_ab_corr
+        
+        print('Airmass correction applied to magnitudes.')
+
+        if outfile is not None:
+            plt.plot(X_colors, y_slopes, 'o')
+            plt.xlabel('B$_{p}$ - R$_{p}$ [mag]')
+            plt.ylabel('Slope [mag/airmass]')
+
+            pred_val = reg_color_slope.predict(X_colors)
+            plt.plot(X_colors, pred_val, 'r-', label='Linear fit')
+            plt.legend()
+            plt.text(0.05, 0.95, 'slope = {:.4f}\nintercept = {:.4f}'.format(slope_color, intercept_color), transform=plt.gca().transAxes,
+                     verticalalignment='top')
+            plt.savefig(outfile)
+            plt.close()
+
+        
+        return matched_sources_df
+    
+    def match_matchedsources_and_gaia(self):
+
+        if self.df_matchedsources is None:
+            print('No matched sources DataFrame provided!')
+            return None
+        matched_sources_df = self.df_matchedsources
+        unique_source_ids = matched_sources_df['SOURCE_ID'].unique()
         for source_id in unique_source_ids:
-            row = matched_sources_df_corr[matched_sources_df_corr['SOURCE_ID'] == source_id].iloc[0]
-            ra = row['RA']
-            dec = row['Dec']
-            coords_list.append(SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame='icrs'))
+            row = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id].iloc[0]
+            row['RA'] = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id]['RA'].median()
+            row['Dec'] = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id]['Dec'].median()
+            if not hasattr(self, "_collected_rows"):
+                self._collected_rows = []
+            self._collected_rows.append(row.to_dict())
+        unique_df = pd.DataFrame(self._collected_rows)
+            
+        coord_ms = SkyCoord(ra=unique_df['RA'], dec=unique_df['Dec'], unit='deg', frame='icrs')
+
+        # Compute spherical centroid and enclosing radius
+        if len(coord_ms) == 0:
+            raise ValueError("No coordinates available to define a search region.")
+
+        # Convert to Cartesian unit vectors and average
+        xyz = coord_ms.cartesian.xyz.value  # shape (3, N)
+        v_mean = xyz.mean(axis=1)
+        norm = np.linalg.norm(v_mean)
+        if norm == 0:
+            raise ValueError("Degenerate centroid vector.")
+        v_unit = v_mean / norm
+
+        center_cart = SkyCoord(x=v_unit[0], y=v_unit[1], z=v_unit[2],
+                               frame='icrs', representation_type='cartesian')
+        center_sph = center_cart.spherical
+
+        center_coord = SkyCoord(ra=center_sph.lon, dec=center_sph.lat, frame='icrs')
+        radius = coord_ms.separation(center_coord).max()
+
+        # Store for later use
+        cRa = center_coord.ra
+        cDec = center_coord.dec
+        sep_subframe = 2 * radius
+
         
+        ## GOT HERE ##
+        start_query = time.time()
+
+        df_gaia_raw = GaiaQuery().run_query_to_pandas(GaiaQuery().create_general_query(cRa=cRa.deg,cDec=cDec.deg,sep_subframe=sep_subframe))
         
-        ## Query Gaia and get also gaia ID, BP-RP color and match LAST. The sources which have no Gaia counterpart get NaN values
+        print('Query time: ',time.time()-start_query)
+        coor_gaia_raw_2016 = SkyCoord(ra=df_gaia_raw['g_ra'].values*u.deg, dec=df_gaia_raw['g_dec'].values*u.deg,
+                                 pm_ra_cosdec=df_gaia_raw['g_pmra'].values * u.mas/u.yr,
+                                 pm_dec=df_gaia_raw['g_pmdec'].values * u.mas/u.yr,
+                                 frame='icrs', obstime=Time(2016.0, format="jyear"))
+       
+        coor_gaia_raw = coor_gaia_raw_2016.apply_space_motion(new_obstime=Time(matched_sources_df['JD'].iloc[0], format='jd'))
+        idx_raw, d2d_raw, d3d_raw = coord_ms.match_to_catalog_sky(coor_gaia_raw)
+        mask_sep_raw = d2d_raw < 2.*u.arcsec
+        
+        idx_match_ms = mask_sep_raw
+        idx_match_gaia = idx_raw[mask_sep_raw]
 
-        ## Loop over each source, calculate the linear regression between mag_aper_ab and airmass
+        unique_df['BP_RP'].loc[idx_match_ms] = df_gaia_raw['g_color'].values[idx_match_gaia]
+        unique_df['GaiaDR3_ID'].loc[idx_match_ms] = df_gaia_raw['source_id'].values[idx_match_gaia]
 
-        ## Apply the airmass correction to the magnitudes
+        for i, row in unique_df.iterrows():
+            source_id = row['SOURCE_ID']
+            mask = matched_sources_df['SOURCE_ID'] == source_id
+            matched_sources_df.loc[mask, 'BP_RP'] = row['BP_RP']
+            matched_sources_df.loc[mask, 'GaiaDR3_ID'] = row['GaiaDR3_ID']
+        
 
-        ## return the corrected DataFrame
-        return matched_sources_df_corr
+        return matched_sources_df
+        
+
+        
+        '''
+        df_gaia = df_gaia_raw.iloc[idx_match_raw].reset_index(drop=True)
+        coor_gaia_2016 = SkyCoord(ra=df_gaia['g_ra'].values*u.deg, dec=df_gaia['g_dec'].values*u.deg,
+                             pm_ra_cosdec=df_gaia['g_pmra'].values * u.mas/u.yr,
+                             pm_dec=df_gaia['g_pmdec'].values * u.mas/u.yr,
+                             frame='icrs', obstime=Time(2016.0, format="jyear"))
+        coor_gaia = coor_gaia_2016.apply_space_motion(new_obstime=Time(matched_sources_df['JD'].iloc[0], format='jd'))
+        '''
+
 
 
     
@@ -1004,7 +1156,7 @@ class LAST_ABSCAL_Analysis(object):
 
         return None
     
-    def plot_rms_AB_vs_LAST(self):
+    def plot_rms_AB_vs_LAST(self, corrected=False):
         """
         Plots the Robust Standard Deviation (RMS) of different magnitude measurements (MAG_APER_AB, MAG_PSF_AB, MAG_APER_LAST, MAG_PSF_LAST) 
         against the average magnitude (AB magnitude) for each unique source ID in the dataframe df_matchedsources.
@@ -1016,20 +1168,23 @@ class LAST_ABSCAL_Analysis(object):
             raise ValueError("self.df_matchedsources is None, create df_matchedsources object first!")
         
         df_matchedsources = self.df_matchedsources
-
-        unique_list = df_matchedsources['SOURCE_ID'].unique()
+        
+        unique_list = df_matchedsources['GaiaDR3_ID'].unique()
 
         sns.set_context('talk', font_scale=1.4, rc={"lines.linewidth": 2.5})
         rcParams['text.usetex'] = True
         
         fig, ax = plt.subplots(1, figsize=(12, 10))
-        
-        for i, item in enumerate(['MAG_APER_AB', 'MAG_PSF_AB', 'MAG_APER_LAST', 'MAG_PSF_LAST']):
+        if corrected:
+            mag_types = ['MAG_APER_AB_CORR', 'MAG_PSF_AB_CORR', 'MAG_APER_LAST', 'MAG_PSF_LAST']
+        else:
+            mag_types = ['MAG_APER_AB', 'MAG_PSF_AB', 'MAG_APER_LAST', 'MAG_PSF_LAST']
+        for i, item in enumerate(mag_types):
             rms_arr = []
             ab_mag_arr = []
 
             for source_id in unique_list:
-                df_source_id = df_matchedsources[df_matchedsources['SOURCE_ID'] == source_id]
+                df_source_id = df_matchedsources[(df_matchedsources['GaiaDR3_ID'] == source_id) & (~df_matchedsources['GaiaDR3_ID'].isna())]
                 if len(df_source_id) < 10.:
                     continue 
                 df_source_id = df_source_id.sort_values(by='JD')

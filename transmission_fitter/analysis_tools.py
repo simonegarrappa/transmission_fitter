@@ -578,7 +578,7 @@ class LAST_ABSCAL_Analysis(object):
         for gaia_id in matched_sources_df['GaiaDR3_ID'].unique():
             if pd.isna(gaia_id):
                 continue
-            df_source_0 = matched_sources_df[(matched_sources_df['GaiaDR3_ID'] == gaia_id) & (~matched_sources_df['GaiaDR3_ID'].isna())& (~matched_sources_df['MAG_APER_AB'].isna())]
+            df_source_0 = matched_sources_df[(matched_sources_df['GaiaDR3_ID'] == gaia_id) & (~matched_sources_df['GaiaDR3_ID'].isna())& (~matched_sources_df['MAG_APER_AB'].isna())& (~matched_sources_df['BP_RP'].isna())]
 
             if len(df_source_0) < 0.5 * len(unique_times) or df_source_0['MAG_APER_AB'].mean() > 16.:
                 continue

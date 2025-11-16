@@ -603,7 +603,8 @@ class LAST_ABSCAL_Analysis(object):
         intercept_color = reg_color_slope.intercept_
         print('Airmass slope vs. color relation: slope = {}, intercept = {}'.format(slope_color, intercept_color))
         print('Applying airmass correction to magnitudes...')
-        for i, row in matched_sources_df.iterrows():
+        for i in range(len(matched_sources_df)):
+            row = matched_sources_df.iloc[i].astype('float64')
             gaia_id = row['GaiaDR3_ID']
             if pd.isna(gaia_id):
                 continue

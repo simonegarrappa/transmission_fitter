@@ -643,7 +643,7 @@ class LAST_ABSCAL_Analysis(object):
         matched_sources_df = self.df_matchedsources
         unique_source_ids = matched_sources_df['SOURCE_ID'].unique()
         for source_id in unique_source_ids:
-            row = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id].iloc[0]
+            row = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id].iloc[0].astype('float64')
             row['RA'] = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id]['RA'].median()
             row['Dec'] = matched_sources_df[matched_sources_df['SOURCE_ID'] == source_id]['Dec'].median()
             if not hasattr(self, "_collected_rows"):

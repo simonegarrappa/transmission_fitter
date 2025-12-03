@@ -679,7 +679,6 @@ class LAST_ABSCAL_Analysis(object):
         sep_subframe = 2 * radius
 
         
-        ## GOT HERE ##
         start_query = time.time()
 
         df_gaia_raw = GaiaQuery().run_query_to_pandas(GaiaQuery().create_general_query(cRa=cRa.deg,cDec=cDec.deg,sep_subframe=sep_subframe))
@@ -711,15 +710,7 @@ class LAST_ABSCAL_Analysis(object):
         
 
         
-        '''
-        df_gaia = df_gaia_raw.iloc[idx_match_raw].reset_index(drop=True)
-        coor_gaia_2016 = SkyCoord(ra=df_gaia['g_ra'].values*u.deg, dec=df_gaia['g_dec'].values*u.deg,
-                             pm_ra_cosdec=df_gaia['g_pmra'].values * u.mas/u.yr,
-                             pm_dec=df_gaia['g_pmdec'].values * u.mas/u.yr,
-                             frame='icrs', obstime=Time(2016.0, format="jyear"))
-        coor_gaia = coor_gaia_2016.apply_space_motion(new_obstime=Time(matched_sources_df['JD'].iloc[0], format='jd'))
-        '''
-
+       
 
 
     

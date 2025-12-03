@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="transmission_fitter",
-    version="0.1.0",    
+    version="0.1.1",    
     author="Simone Garrappa",
     author_email="simone.garrappa@gmail.com",
     description="Package for absolute calibration of optical telescopes by fitting the system transmission",
@@ -24,6 +24,6 @@ setup(
     python_requires='>=3.6',  # Minimum Python version
     install_requires=[
         "numpy", "matplotlib","astropy","pandas","lmfit","gaiaxpy",
-          "catsHTM","scipy","seaborn","astroquery" 
+          "catsHTM","scipy","seaborn","astroquery","scikit-learn" 
     ]
 )

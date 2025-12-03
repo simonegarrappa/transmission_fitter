@@ -72,7 +72,7 @@ class GaiaQuery(object):
         self.cRa = None #in degrees
         self.cDec = None #in degrees
         self.sep_subframe = None #astropy quantity
-        self.path_HTM = '/mnt/marvin/catsHTM'
+        self.path_HTM = '/mnt/euclid/catsHTM'
         self.sampling = np.linspace(336.,1020.,343,endpoint=True)
 
         if 'coadd' in catfile:

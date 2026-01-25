@@ -341,7 +341,7 @@ class GaiaQuery(object):
             #calibrated_spectra.reset_index(drop=True, inplace=True)
 
             coord_df_match = SkyCoord(ra=df_match['g_ra'], dec=df_match['g_dec'], unit='deg', frame='icrs',equinox='J2016')
-            coord_df_cat = SkyCoord(ra=df_cat['RA'], dec=df_cat['Dec'], unit='rad', frame='icrs',equinox='J2016')
+            coord_df_cat = SkyCoord(ra=df_cat["['RA']"], dec=df_cat["['Dec']"], unit='rad', frame='icrs',equinox='J2016')
             
             #First match to select elements of df_match with spectra
             idx, d2d, d3d = coord_df_cat.match_to_catalog_sky(coord_df_match)

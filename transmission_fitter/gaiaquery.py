@@ -260,7 +260,7 @@ class GaiaQuery(object):
                 last_flags_keys = LastCatUtils().get_flags_keyword(last_flags)
                 
                 #if len(indices_flags) > 0:
-                if all(ff in ['Saturated','NaN','Negative','CR_DeltaHT','NearEdge'] for ff in last_flags_keys):    
+                if any(ff in ['Saturated','NaN','Negative','CR_DeltaHT','NearEdge'] for ff in last_flags_keys):    
                     continue
 
                 jd_ = info_cat.header['JD']    

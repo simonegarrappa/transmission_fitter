@@ -44,13 +44,13 @@ class LastCatUtils(object):
         """
         ra_ = info_cat.header['RA']
         dec_ = info_cat.header['DEC']
-        time_ = info_cat.header['DATE-OBS']
-        img_coord = SkyCoord(ra=ra_ * u.degree, dec=dec_ * u.degree, frame='icrs')
+        #time_ = info_cat.header['DATE-OBS']
+        #img_coord = SkyCoord(ra=ra_ * u.degree, dec=dec_ * u.degree, frame='icrs')
 
-        img_altaz = img_coord.transform_to(AltAz(obstime=time_, location=self.neot_semadar))
+        #img_altaz = img_coord.transform_to(AltAz(obstime=time_, location=self.neot_semadar))
 
-        airmass_last = img_altaz.secz.value
-
+        #airmass_last = img_altaz.secz.value
+        airmass_last = info_cat.header['AIRMASS']
         return airmass_last
     
     def get_zenith_from_cat(self,info_cat):

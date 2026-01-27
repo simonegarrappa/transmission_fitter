@@ -866,6 +866,8 @@ class AbsoluteCalibration(object):
 
         df_match['MAG_PREDICTED'] = np.array(self.ResidFunc(out6.params,x))
 
+        df_match['SYNTHETIC_ERR'] = yerr
+
         #df_match.to_pickle(RES_DYR+'/PostChecks_DB_subframe'+ str('{0:03}'.format(sf_num)) +'.pkl')
 
         params_to_save = out6.params

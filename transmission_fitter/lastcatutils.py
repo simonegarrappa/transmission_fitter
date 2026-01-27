@@ -9,7 +9,7 @@ import numpy as np
 
 class LastCatUtils(object):
     def __init__(self):
-        neot_semadar = EarthLocation(lat=30.0529838 * u.deg, lon=35.0407331 * u.deg, height=415.4 * u.m)
+        neot_semadar = EarthLocation(lat=30.053072 * u.deg, lon=35.040858 * u.deg, height=415.4 * u.m)
         self.neot_semadar = neot_semadar
         pass
 

@@ -44,14 +44,18 @@ class LastCatUtils(object):
         """
         ra_ = info_cat.header['RA']
         dec_ = info_cat.header['DEC']
-        #time_ = info_cat.header['DATE-OBS']
-        #img_coord = SkyCoord(ra=ra_ * u.degree, dec=dec_ * u.degree, frame='icrs')
+        time_ = info_cat.header['DATE-OBS']
+        img_coord = SkyCoord(ra=ra_ * u.degree, dec=dec_ * u.degree, frame='icrs')
 
-        #img_altaz = img_coord.transform_to(AltAz(obstime=time_, location=self.neot_semadar))
+        img_altaz = img_coord.transform_to(AltAz(obstime=time_, location=self.neot_semadar))
+        
+        airmass_last = self.get_hardie_airmass(altitude= img_altaz.alt.degree)
 
         #airmass_last = img_altaz.secz.value
-        airmass_last = info_cat.header['AIRMASS']
+        #airmass_last = info_cat.header['AIRMASS']
         return airmass_last
+    
+    
     
     def get_zenith_from_cat(self,info_cat):
         """
@@ -66,6 +70,31 @@ class LastCatUtils(object):
         airmass_last = self.get_airmass_from_cat(info_cat)
         zenith_last = abscalutils.get_zenith_from_airmass(airmass_last)
         return zenith_last
+
+    def get_hardie_airmass(self, zenith_angle=None, altitude=None):
+        """
+        Calculate the Hardie (1962) optical airmass.
+
+        Parameters:
+        zenith_angle (float or astropy.units.Quantity, optional): Zenith angle in degrees.
+        altitude (float or astropy.units.Quantity, optional): Altitude angle in degrees.
+
+        Returns:
+        astropy.units.Quantity: Hardie (1962) airmass as a dimensionless quantity.
+        """
+        if (zenith_angle is None) == (altitude is None):
+            raise ValueError("Provide exactly one of zenith_angle or altitude.")
+
+        if zenith_angle is None:
+            altitude = u.Quantity(altitude, u.deg)
+            zenith_angle = 90 * u.deg - altitude
+        else:
+            zenith_angle = u.Quantity(zenith_angle, u.deg)
+
+        secz = 1.0 / np.cos(zenith_angle.to(u.rad))
+        delta = secz - 1.0
+        airmass = secz - 0.0018167 * delta - 0.002875 * delta**2 - 0.0008083 * delta**3
+        return airmass.to(u.dimensionless_unscaled)
     
     def get_exptime_from_cat(self,info_cat):
         """

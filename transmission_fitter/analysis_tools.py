@@ -738,7 +738,7 @@ class LAST_ABSCAL_Analysis(object):
             parvals = params[j].valuesdict()
 
             ## Interpolate spectrum and resample with self.wvl_arr
-            mu_array = np.asarray(spectrum_['flux'][0])
+            mu_array = np.asarray(spectrum_)#['flux'][0])
             
             CS_spectrum = interp1d(wvl_array, mu_array, bounds_error=False,fill_value="extrapolate")
             spectrum_interp = CS_spectrum(self.wvl_arr)

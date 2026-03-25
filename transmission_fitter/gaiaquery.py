@@ -302,7 +302,7 @@ class GaiaQuery(object):
         df_match['GaiaDR3_ID'] = gaiaid_list
         df_match['LAST_num'] = lastid_list
 
-        df_match = df_match[(df_match['LAST_SN']>5) & (df_match['LAST_SN']<1000)].reset_index()
+        df_match = df_match[(df_match['LAST_SN']>5) & (df_match['LAST_SN']<1000) & (df_match['LAST_FLUX_APER_3']>0) & (df_match['LAST_FLUX_PSF']>0)].reset_index()
         print('Matching time: ',time.time()-start)
         return df_match
     

@@ -2004,7 +2004,116 @@ class LAST_ABSCAL_Analysis(object):
 
 
 
+    def plot_zp_2D_fullimage_PipeV2(self,title_=None,n_grid_points=100j,outfile=None):
+        
+        sns.set_context('talk',font_scale=1.4,rc={"lines.linewidth": 2.5})
+        dict_lastframe = self.dict_lastframe 
+        #fig,axs = plt.subplots(6,4,sharex=True,sharey=True,figsize=(20,20))
+        X_master = np.array([])
+        Y_master = np.array([])
+        Z_master = np.array([])
+        for i,item in enumerate(self.catlist):
+            framenum = i+1
+            frame_tup = dict_lastframe[str(framenum)]
 
+
+
+            # Define the grid boundaries and resolution
+            min_coor = 0
+            max_coor_x = 1726#1587
+            max_coor_y = 1726#1587
+            offset_ = 69
+            X, Y = np.mgrid[min_coor+offset_:max_coor_x-offset_:n_grid_points, min_coor+offset_:max_coor_y-offset_:n_grid_points]
+            X = X.flatten()
+            Y = Y.flatten()
+            x_c = (X,Y)
+
+            #axs_frame = axs[frame_tup[0],frame_tup[1]]
+            
+            
+                
+
+            cat_ = self.catlist[i]
+
+            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=False,use_atm=True)
+            params_set = self.params_cal[i]
+            abzp_ = abscal_obj.ResidFunc(params_set, x_c, calc_zp=True)
+            #fc_ = abscal_obj.ResidFunc(params_set,x_c,calc_zp=True,field_corr_ = True)
+            z_ = abzp_
+
+            ## Transformations for X coor
+            if framenum in [1,5,9,13,17,21]:
+                X_master = np.append(X_master,X-offset_)
+            
+            elif framenum in [2,6,10,14,18,22]: 
+                X = X +1588
+                X_master = np.append(X_master,X-offset_)
+
+            elif framenum in [3,7,11,15,19,23]:
+                X_master = np.append(X_master,X+3176-offset_);
+            
+            elif framenum in [4,8,12,16,20,24]:
+                X_master = np.append(X_master,X+4764-offset_);
+            
+            else:
+                print('Error: Frame number not recognized.')
+                X_master = np.append(X_master,[0])
+            
+
+            ## Transformations for Y coor
+            if framenum in [1,2,3,4]:
+                Y_master = np.append(Y_master,Y-offset_)
+            elif framenum in [5,6,7,8]:
+                Y_master = np.append(Y_master,Y+1588-offset_)
+            elif framenum in [9,10,11,12]:
+                Y_master = np.append(Y_master,Y+3176-offset_)
+            elif framenum in [13,14,15,16]:
+                Y_master = np.append(Y_master,Y+4764-offset_)
+            elif framenum in [17,18,19,20]:
+                Y_master = np.append(Y_master,Y+6352-offset_)
+            elif framenum in [21,22,23,24]:
+                Y_master = np.append(Y_master,Y+7940-offset_)
+            else:
+                print('Error: Frame number not recognized.')
+                Y_master = np.append(Y_master,[0])
+            
+            ## Concatenate to Z_master
+
+            Z_master = np.append(Z_master,z_)
+
+
+        # Create a grid for interpolation
+        grid_x, grid_y = np.mgrid[min(X_master):max(X_master):n_grid_points, min(Y_master):max(Y_master):n_grid_points]
+        # Interpolate z_ value over the grid
+        Z = griddata((X_master, Y_master), Z_master, (grid_x, grid_y), method='linear')
+        # Plot the interpolated z_ value as a contour plot
+        
+        fig, ax = plt.subplots(figsize=(10,16))
+        im = ax.contourf(grid_x, grid_y, Z, cmap='viridis', alpha=0.5,levels=15)
+        for i in range(4):
+            ax.axvline(x=1588*(i+1), color='k', linestyle='--', linewidth=1)
+        for i in range(6):
+            ax.axhline(y=1588*(i+1), color='k', linestyle='--', linewidth=1)
+        
+        ax.set_xlim(0, 1588*4)
+        ax.set_ylim(0, 1588*6)
+
+
+        
+        cbar = fig.colorbar(im, label='AB ZP [mag]')
+
+        cbar.ax.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.2f'))  # Format tick labels to 2 decimal places
+        #plt.title(title_)
+            
+        
+        
+        plt.xlabel('LAST X coord [pixel]')
+        plt.ylabel('LAST Y coord [pixel]',labelpad=20)
+        if outfile is not None:
+            fig.savefig(outfile,bbox_inches='tight')
+
+        plt.show()
+        return grid_x,grid_y,Z    
 
 
                 

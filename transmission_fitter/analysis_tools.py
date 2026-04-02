@@ -53,98 +53,118 @@ class LAST_ABSCAL_Analysis(object):
         self.single_output = True
         self.obs_location = EarthLocation(lat=30.0529838 * u.deg, lon=35.0407331 * u.deg, height=415.4 * u.m)
 
+        self.calibrated_spectra = None
+        self.sampling = self.wvl_arr
         
         
 
         pass
 
     def calibrate_single_catalog(self, catfile):
-            """
-            Calibrates a single catalog.
+        """
+        Calibrates a single catalog.
 
-            Args:
-                catfile (str): The path to the catalog file.
+        Args:
+            catfile (str): The path to the catalog file.
 
-            Returns:
-                tuple: A tuple containing the parameters to save and the DataFrame of matched fits.
-            """
-            print('Calibrating catalog: {}'.format(catfile))
-            abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
-            abscal_obj.match_Gaia()
+        Returns:
+            tuple: A tuple containing the parameters to save and the DataFrame of matched fits.
+        """
+        print('Calibrating catalog: {}'.format(catfile))
+        abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
+        
+        if self.calibrated_spectra is None:
+            self.get_spectra = True
+            _, calibrated_spectra, sampling, _2 = abscal_obj.match_Gaia(get_spectra=self.get_spectra)
+            self.calibrated_spectra = calibrated_spectra
+            self.sampling = sampling
+            self.get_spectra = False
+        else:
+            print('Using previously retrieved Gaia spectra for calibration.')
+            self.get_spectra = False
+            abscal_obj.calibrated_spectra = self.calibrated_spectra
+            abscal_obj.sampling = self.sampling
 
-            if abscal_obj.df_match is None:
-                print('No matches found in Gaia catalog. Skipping this catalog.')
-                return None, None
+            source_ids, calibrated_spectra, sampling, df_match = abscal_obj.match_Gaia(get_spectra=self.get_spectra)
 
-            params_to_save, df_match_fit = abscal_obj.fit_transmission()
+        
+        if self.get_spectra == False:
+            #abscal_obj.calibrated_spectra = self.calibrated_spectra
+            abscal_obj.sampling = sampling
 
-            self.params_cal = params_to_save
-            self.df_match_cal = df_match_fit
-            self.catfile = catfile
+        if abscal_obj.df_match is None:
+            print('No matches found in Gaia catalog. Skipping this catalog.')
+            return None, None
 
-            #self.write_products(resfilename=resfilename)
+        params_to_save, df_match_fit = abscal_obj.fit_transmission()
 
-            print('Calibration complete!')
+        self.params_cal = params_to_save
+        self.df_match_cal = df_match_fit
+        self.catfile = catfile
 
-            return params_to_save, df_match_fit
+        #self.write_products(resfilename=resfilename)
+
+        print('Calibration complete!')
+
+        return params_to_save, df_match_fit
     
     
     def calibrate_single_catalog_Bootstrap(self,catfile,n_boot=100,resfilename='DefaultResultsBS'):
-            """
-            Calibrates a single catalog using bootstrap resampling.
+        """
+        Calibrates a single catalog using bootstrap resampling.
 
-            Parameters:
-            - catfile (str): The path to the catalog file.
-            - n_boot (int): The number of bootstrap iterations. Default is 100.
-            - resfilename (str): The name of the file to save the results. Default is 'DefaultResultsBS'.
+        Parameters:
+        - catfile (str): The path to the catalog file.
+        - n_boot (int): The number of bootstrap iterations. Default is 100.
+        - resfilename (str): The name of the file to save the results. Default is 'DefaultResultsBS'.
 
-            Returns:
-            None
-            """
-            ## Calibrate original catalog
-            print('Calibrating catalog: {}'.format(catfile))
-            abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
-            abscal_obj.match_Gaia()
+        Returns:
+        None
+        """
+        ## Calibrate original catalog
+        print('Calibrating catalog: {}'.format(catfile))
+        abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
+        abscal_obj.match_Gaia()
 
-            params_to_save,df_match_fit = abscal_obj.fit_transmission()
+        params_to_save,df_match_fit = abscal_obj.fit_transmission()
 
-            self.params_cal = params_to_save
-            self.df_match_cal = df_match_fit
-            self.catfile = catfile
+        self.params_cal = params_to_save
+        self.df_match_cal = df_match_fit
+        self.catfile = catfile
 
-            source_ids_0 = abscal_obj.source_ids
-            df_match_0 = abscal_obj.df_match
+        source_ids_0 = abscal_obj.source_ids
+        df_match_0 = abscal_obj.df_match
+        
+
+        list_index_match = np.array(df_match_0.index)
+        
+        
+
+        params_to_save_list_bz = []
+        df_match_fit_list_bz = []
+
+        for bz in range(n_boot):
+            print('Bootstrap iteration: {}'.format(bz))
+            ## Bootstrap
+            choice_index = np.sort(np.random.choice(list_index_match,int(len(source_ids_0)),replace = True))
+
             
-
-            list_index_match = np.array(df_match_0.index)
             
-            
+            df_match_bz = df_match_0.loc[choice_index]
+            source_ids_bz = df_match_bz['GaiaDR3_ID'].values #np.array(source_ids_0)[choice_index] #backup copy and mask
 
-            params_to_save_list_bz = []
-            df_match_fit_list_bz = []
+            abscal_obj.source_ids = source_ids_bz
+            abscal_obj.df_match = df_match_bz
 
-            for bz in range(n_boot):
-                print('Bootstrap iteration: {}'.format(bz))
-                ## Bootstrap
-                choice_index = np.sort(np.random.choice(list_index_match,int(len(source_ids_0)),replace = True))
+            params_to_save_bz,df_match_fit_bz = abscal_obj.fit_transmission()
 
-                
-                
-                df_match_bz = df_match_0.loc[choice_index]
-                source_ids_bz = df_match_bz['GaiaDR3_ID'].values #np.array(source_ids_0)[choice_index] #backup copy and mask
+            params_to_save_list_bz.append(params_to_save_bz)
+            df_match_fit_list_bz.append(df_match_fit_bz)
 
-                abscal_obj.source_ids = source_ids_bz
-                abscal_obj.df_match = df_match_bz
+        self.params_cal = params_to_save_list_bz
+        self.df_match_cal = df_match_fit_list_bz
 
-                params_to_save_bz,df_match_fit_bz = abscal_obj.fit_transmission()
-
-                params_to_save_list_bz.append(params_to_save_bz)
-                df_match_fit_list_bz.append(df_match_fit_bz)
-
-            self.params_cal = params_to_save_list_bz
-            self.df_match_cal = df_match_fit_list_bz
-
-            self.write_products_Bootstrap(resfilename=resfilename)
+        self.write_products_Bootstrap(resfilename=resfilename)
             
 
 

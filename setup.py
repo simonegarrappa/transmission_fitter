@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="transmission_fitter",
-    version="0.1.1",    
+    version="0.1.2",    
     author="Simone Garrappa",
     author_email="simone.garrappa@gmail.com",
     description="Package for absolute calibration of optical telescopes by fitting the system transmission",

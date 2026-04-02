@@ -110,7 +110,7 @@ class GaiaQuery(object):
             query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, gaia.pmra AS g_pmra, gaia.pmdec AS g_pmdec, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
             FROM gaiadr3.gaia_source AS gaia \
             WHERE DISTANCE(POINT("+str(cRa)+","+str(cDec)+"),POINT(gaia.ra, gaia.dec)) < "+str(sep_subframe.deg)+" AND \
-            has_xp_continuous = 'TRUE' AND \
+            has_xp_sampled = 'TRUE' AND \
             phot_g_mean_mag > 12 AND \
             classprob_dsc_combmod_star > 0.9 AND \
             phot_g_mean_mag < 16."
@@ -122,7 +122,7 @@ class GaiaQuery(object):
             WHERE (gaia.ra BETWEEN "+str(0.)+" AND "+str(Ra_max)+" OR \
             gaia.ra BETWEEN "+str(Ra_min)+" AND "+str(360.)+") AND \
             gaia.dec BETWEEN "+str(Dec_min)+" AND "+str(Dec_max)+" AND \
-            has_xp_continuous = 'TRUE' AND \
+            has_xp_sampled = 'TRUE' AND \
             phot_g_mean_mag > 12 AND \
             classprob_dsc_combmod_star > 0.9 AND \
             phot_g_mean_mag < 16."
@@ -365,41 +365,96 @@ class GaiaQuery(object):
         
         else:
 
-            calibrated_spectra, sampling = gaiaxpy.calibrate(source_ids)
-            print('Calibration time: ',time.time()-start)
+            calibrated_spectra_unsrt, sampling = self.retrieve_gaia_spectra_from_ids(source_ids)
+            print('Spectra calibration time: ',time.time()-start)
             print('Number of calibrators (Gmag < 16): ',len(df_match))
-            if len(df_match['G_mag'] < 15.) > 29:
-                df_match_sel = df_match[df_match['G_mag'] < 15.]
-                source_ids_sel = df_match_sel['GaiaDR3_ID'].values
-                idx_sel = df_match_sel.index
-                calibrated_spectra_sel = calibrated_spectra.loc[idx_sel]
-                calibrated_spectra_sel.reset_index(drop=True, inplace=True)
-                df_match_sel.reset_index(drop=True, inplace=True)
+            idx_gaiaid = df_match['GaiaDR3_ID'].values
+            calibrated_spectra = calibrated_spectra_unsrt.loc[idx_gaiaid].reset_index(drop=True)
 
-                print('Reduced to Gmag < 15, number of calibrators: ',len(df_match_sel))
+            calibrated_spectra['GaiaDR3_ID'] = idx_gaiaid
 
-                return source_ids_sel, calibrated_spectra_sel, sampling, df_match_sel
+            calibrated_spectra = calibrated_spectra.sort_values('GaiaDR3_ID').reset_index(drop=True)
+            df_match = df_match.sort_values('GaiaDR3_ID').reset_index(drop=True)
+            source_ids = list(df_match['GaiaDR3_ID'].astype(str))
+
+            #sort calibrated_spectra by GaiaDR3_ID
+
+            #if len(df_match[df_match['G_mag'] < 15.]) > 29:
+            #    df_match_sel = df_match[df_match['G_mag'] < 15.]
+            #    source_ids_sel = df_match_sel['GaiaDR3_ID'].values
+            #    idx_sel = df_match_sel.index
+            #    calibrated_spectra_sel = calibrated_spectra.loc[source_ids_sel]
+            #    calibrated_spectra_sel.reset_index(drop=True, inplace=True)
+            #    df_match_sel.reset_index(drop=True, inplace=True)
+
+            #    print('Reduced to Gmag < 15, number of calibrators: ',len(df_match_sel))
+
+            #    return source_ids_sel, calibrated_spectra_sel, sampling, df_match_sel
 
 
 
             return source_ids, calibrated_spectra, sampling, df_match
 
-    def retrieve_gaia_spectra_from_ids(self, source_ids):
-        """
-        Retrieves Gaia spectra using the provided source IDs.
-
-        Parameters:
-            source_ids (list): List of Gaia source IDs.
-
-        Returns:
-            calibrated_spectra (array): Calibrated spectra.
-            sampling (float): Sampling rate.
-        """
-        calibrated_spectra, sampling = gaiaxpy.calibrate(source_ids)
-        return calibrated_spectra, sampling
+    
     
 
+    def retrieve_gaia_spectra_from_ids(self, source_ids, chunk_size=50):
+        """
+        Retrieves Gaia XP sampled spectra for the given source IDs using the
+        Gaia archive TAP service (astroquery), without relying on gaiaxpy.
 
+        The returned flux arrays are sampled on a fixed wavelength grid of 343
+        points from 336 to 1020 nm (2 nm steps), consistent with
+        gaiadr3.xp_sampled_mean_spectrum.
+
+        IDs are sent in chunks to avoid HTTP 500 errors from large IN clauses.
+
+        Parameters:
+            source_ids (list): List of Gaia DR3 source IDs (int or str).
+            chunk_size (int): Number of IDs per TAP query (default 50).
+
+        Returns:
+            spectra_df (DataFrame): DataFrame indexed by source_id with columns
+                'flux' (np.ndarray, length 343) and 'flux_error' (np.ndarray, length 343).
+            sampling (np.ndarray): Wavelength array in nm, shape (343,).
+        """
+        sampling = np.linspace(336., 1020., 343, endpoint=True)
+
+        ids = [int(sid) for sid in source_ids]
+        chunks = [ids[i:i + chunk_size] for i in range(0, len(ids), chunk_size)]
+
+        rows = []
+        sampling = None
+        for i, chunk in enumerate(chunks):
+            print(f'Querying chunk {i+1}/{len(chunks)} ({len(chunk)} IDs)...')
+            datalink = Gaia.load_data(
+                ids=chunk,
+                data_release='Gaia DR3',
+                data_structure='INDIVIDUAL',
+                retrieval_type='XP_SAMPLED',
+                format='votable',
+                overwrite_output_file=True,
+            )
+            # Keys are like 'XP_SAMPLED-Gaia DR3 <source_id>.xml'
+            for key, table_list in datalink.items():
+                src_id = int(key.split('DR3 ')[1].replace('.xml', ''))
+                for tbl in table_list:
+                    t = tbl.to_table()
+                    if sampling is None:
+                        sampling = np.array(t['wavelength'])
+                    rows.append({
+                        'source_id': src_id,
+                        'flux': np.array(t['flux']),
+                        'flux_error': np.array(t['flux_error']),
+                    })
+            time.sleep(1)
+
+        if sampling is None:
+            sampling = np.linspace(336., 1020., 343, endpoint=True)
+
+        spectra_df = pd.DataFrame(rows).set_index('source_id')
+        print(f'Retrieved spectra for {len(spectra_df)} sources.')
+        return spectra_df, sampling
     
 
     

@@ -628,7 +628,7 @@ class AbsoluteCalibration(object):
             return transm_full
         return model
     
-    def match_Gaia(self):
+    def match_Gaia(self,get_spectra=False):
         """
         Match with GAIA.
 
@@ -638,14 +638,42 @@ class AbsoluteCalibration(object):
         - df_match (pandas.DataFrame): The matching dataframe.
 
         """
-        source_ids, calibrated_spectra, sampling, df_match = GaiaQuery(self.catfile).retrieve_gaia_spectra(useHTM=self.useHTM)
+        if get_spectra:
+            source_ids, calibrated_spectra, sampling, df_match = GaiaQuery(self.catfile).retrieve_gaia_spectra(useHTM=self.useHTM)
+        else:
+            print('Matching already downloaded spectra...\n')
+            df_match_raw = GaiaQuery(self.catfile).match_last_and_gaia()
+            source_ids = list(self.calibrated_spectra['GaiaDR3_ID'].astype(str))
+            
+            df_match = df_match_raw[df_match_raw['GaiaDR3_ID'].astype(str).isin(source_ids)].reset_index(drop=True)
+            gaia_id_in_df_match = list(df_match['GaiaDR3_ID'].astype(str))
+
+            calibrated_spectra_matched = self.calibrated_spectra[self.calibrated_spectra['GaiaDR3_ID'].astype(str).isin(gaia_id_in_df_match)].reset_index(drop=True)
+
+            # When loaded from CSV, flux/flux_error are stored as strings — parse them back to arrays
+            for col in ['flux', 'flux_error']:
+                if col in calibrated_spectra_matched.columns and isinstance(calibrated_spectra_matched[col].iloc[0], str):
+                    calibrated_spectra_matched[col] = calibrated_spectra_matched[col].apply(
+                        lambda s: np.fromstring(s.strip('[]'), sep=' ') if ' ' in s else np.fromstring(s.strip('[]'), sep=',')
+                    )
+
+            calibrated_spectra_matched = calibrated_spectra_matched.sort_values('GaiaDR3_ID').reset_index(drop=True)
+
+            if not len(calibrated_spectra_matched) == len(df_match):
+                print('Warning: number of matched spectra and matched sources in df_match do not match!')
+            df_match = df_match.sort_values('GaiaDR3_ID').reset_index(drop=True)
+            
+            calibrated_spectra = calibrated_spectra_matched
+
+            
+        source_ids = list(df_match['GaiaDR3_ID'].astype(str))
         self.source_ids = source_ids
         self.calibrated_spectra = calibrated_spectra
-        self.sampling = sampling
+        self.sampling = GaiaQuery(self.catfile).sampling
         self.df_match = df_match
         print('Spectra retrieved for catalog file: ' + self.catfile)
-        return source_ids, calibrated_spectra, sampling, df_match
-    
+        return source_ids, calibrated_spectra, self.sampling, df_match
+
     
     def fit_transmission(self):
         """

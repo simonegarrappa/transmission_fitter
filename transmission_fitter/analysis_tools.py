@@ -469,7 +469,10 @@ class LAST_ABSCAL_Analysis(object):
                     continue
                 
             n_sources_in_cat.append(len(last_cat))
-            limmag_list.append(info_cat.header['LIMMAG'])
+            try:
+                limmag_list.append(info_cat.header['LIMMAG'])
+            except KeyError:
+                limmag_list.append(None)
             catlist_selection.append(cat_i)
 
 

@@ -638,6 +638,8 @@ class AbsoluteCalibration(object):
         - df_match (pandas.DataFrame): The matching dataframe.
 
         """
+        if self.useHTM:
+            get_spectra = True
         if get_spectra:
             source_ids, calibrated_spectra, sampling, df_match = GaiaQuery(self.catfile).retrieve_gaia_spectra(useHTM=self.useHTM)
         else:

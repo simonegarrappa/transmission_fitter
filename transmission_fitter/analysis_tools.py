@@ -73,7 +73,7 @@ class LAST_ABSCAL_Analysis(object):
         print('Calibrating catalog: {}'.format(catfile))
         abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
         
-        if self.calibrated_spectra is None:
+        if self.calibrated_spectra is None or self.useHTM is True:
             self.get_spectra = True
             _, calibrated_spectra, sampling, _2 = abscal_obj.match_Gaia(get_spectra=self.get_spectra)
             self.calibrated_spectra = calibrated_spectra

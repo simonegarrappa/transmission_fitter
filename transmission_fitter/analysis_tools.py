@@ -391,8 +391,12 @@ class LAST_ABSCAL_Analysis(object):
 
         abmag_aper_ = abzp_ - 2.5 * np.log10(flux_aper_)
         abmag_aper_err = 1.086 / sn_
-
-        ellepticity_ = 1 - (info_cat_ref.header['MED_B'] / info_cat_ref.header['MED_A'])
+        
+        try:
+            ellipticity_ = 1 - (info_cat_ref.header['MED_B'] / info_cat_ref.header['MED_A'])
+        except:
+            ellipticity_ = np.nan
+    
         try:
             fwhm_ = info_cat_ref.header['FWHM']
         except:
@@ -407,7 +411,7 @@ class LAST_ABSCAL_Analysis(object):
                         'MAG_PSF_LAST': last_cat_ref['MAG_PSF'], 'MAG_PSF_LAST_ERR': abmag_psf_err,
                         'MAG_APER_LAST': last_cat_ref['MAG_APER_3'],
                         'MAG_APER_LAST_ERR': last_cat_ref['MAGERR_APER_3'],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,
-                        'FWHM':fwhm_,'ELLIPTICITY':ellepticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
+                        'FWHM':fwhm_,'ELLIPTICITY':ellipticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
                         'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus,'BP_RP':np.nan*np.ones(len(idx_match_ref)),'GaiaDR3_ID':np.nan*np.ones(len(idx_match_ref))}
 
         matched_sources_df = pd.concat([matched_sources_df, pd.DataFrame(df_i_dict)], ignore_index=True)
@@ -538,7 +542,10 @@ class LAST_ABSCAL_Analysis(object):
             abmag_aper_ = abzp_ - 2.5 * np.log10(flux_aper_)
             abmag_aper_err = 1.086 / sn_
 
-            ellepticity_ = 1 - (info_cat.header['MED_B'] / info_cat.header['MED_A'])
+            try:
+                ellipticity_ = 1 - (info_cat.header['MED_B'] / info_cat.header['MED_A'])
+            except:
+                ellipticity_ = np.nan
             try:
                 fwhm_ = info_cat.header['FWHM']
             except:
@@ -558,7 +565,7 @@ class LAST_ABSCAL_Analysis(object):
                          'MAG_PSF_LAST': last_cat['MAG_PSF'][mask_match], 'MAG_PSF_LAST_ERR': abmag_psf_err,
                          'MAG_APER_LAST': last_cat['MAG_APER_3'][mask_match],
                          'MAG_APER_LAST_ERR': last_cat['MAGERR_APER_3'][mask_match],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,
-                         'FWHM':fwhm_,'ELLIPTICITY':ellepticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
+                         'FWHM':fwhm_,'ELLIPTICITY':ellipticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
                          'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus,
                          'BP_RP':np.full(len(idx_match_ref), np.nan),'GaiaDR3_ID':np.full(len(idx_match_ref), np.nan),
                          'MAG_APER_AB_CORR':np.full(len(idx_match_ref), np.nan),'MAG_PSF_AB_CORR':np.full(len(idx_match_ref), np.nan),'AIRMASS':airmass_}
@@ -1423,7 +1430,10 @@ class LAST_ABSCAL_Analysis(object):
                 abmag_aper_ = abzp_ - 2.5 * np.log10(flux_aper_)
                 abmag_aper_err = 1.086 / sn_
 
-                ellepticity_ = 1 - (info_cat.header['MED_B'] / info_cat.header['MED_A'])
+                try:
+                    ellipticity_ = 1 - (info_cat.header['MED_B'] / info_cat.header['MED_A'])
+                except:
+                    ellipticity_ = np.nan
 
                 try:
                     fwhm_ = info_cat.header['FWHM']
@@ -1436,7 +1446,7 @@ class LAST_ABSCAL_Analysis(object):
                             'MAG_APER_AB': abmag_aper_, 'MAG_APER_AB_ERR': abmag_aper_err, 'AB_ZP': abzp_, 'SN': sn_,
                             'MAG_PSF_LAST': last_cat['MAG_PSF'][last_idx_], 'MAG_PSF_LAST_ERR': abmag_psf_err,
                             'MAG_APER_LAST': last_cat['MAG_APER_3'][last_idx_],
-                            'MAG_APER_LAST_ERR': last_cat['MAGERR_APER_3'][last_idx_],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,'FWHM':fwhm_,'ELLIPTICITY':ellepticity_}
+                            'MAG_APER_LAST_ERR': last_cat['MAGERR_APER_3'][last_idx_],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,'FWHM':fwhm_,'ELLIPTICITY':ellipticity_}
 
                   
                 df_lc = pd.concat([df_lc,pd.DataFrame([df_i_dict])],ignore_index=True)  

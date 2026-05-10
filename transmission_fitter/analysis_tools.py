@@ -488,7 +488,7 @@ class LAST_ABSCAL_Analysis(object):
         last_cat_ref_apy = SkyCoord(ra=last_cat_ref['RA'], dec=last_cat_ref['Dec'], unit='deg', frame='icrs')
         colnames_df = ['SOURCE_ID', 'RA', 'Dec', 'JD', 'MAG_PSF_AB', 'MAG_PSF_AB_ERR','MAG_APER_AB','MAG_APER_AB_ERR', 
                        'AB_ZP', 'SN', 'MAG_PSF_LAST', 'MAG_PSF_LAST_ERR','MAG_APER_LAST', 'MAG_APER_LAST_ERR','LAST_FLAGS','LAST_X','LAST_Y','FWHM',
-                       'ELLIPTICITY','FLUX_APER_3','FLUX_PSF','FIELD_CORR','LAST_X2','LAST_Y2','LAST_XY','LAST_BACK_IM','LAST_BACK_ANNULUS','BP_RP','GaiaDR3_ID','MAG_APER_AB_CORR','MAG_PSF_AB_CORR','AIRMASS']
+                       'ELLIPTICITY','FLUX_APER_3','FLUX_PSF','FIELD_CORR','LAST_X2','LAST_Y2','LAST_XY','LAST_BACK_IM','LAST_BACK_ANNULUS','BP_RP','GaiaDR3_ID','MAG_APER_AB_CORR','MAG_PSF_AB_CORR','AIRMASS','ZP_LAST']
         matched_sources_df = pd.DataFrame(columns=colnames_df)
 
         matched_sources_df = matched_sources_df.astype({'SOURCE_ID': 'int', 'RA': 'float', 'Dec': 'float', 'JD': 'float',
@@ -497,7 +497,7 @@ class LAST_ABSCAL_Analysis(object):
                                                         'SN': 'float', 'MAG_PSF_LAST': 'float', 'MAG_PSF_LAST_ERR': 'float',
                                                         'MAG_APER_LAST': 'float', 'MAG_APER_LAST_ERR': 'float','LAST_FLAGS':'float','LAST_X':'float','LAST_Y':'float','FWHM':'float','ELLIPTICITY':'float',
                                                         'FLUX_APER_3':'float','FLUX_PSF':'float','FIELD_CORR':'float','LAST_X2':'float','LAST_Y2':'float','LAST_XY':'float',
-                                                        'LAST_BACK_IM':'float','LAST_BACK_ANNULUS':'float','BP_RP':'float','GaiaDR3_ID':'int','MAG_APER_AB_CORR':'float','MAG_PSF_AB_CORR':'float','AIRMASS':'float'})
+                                                        'LAST_BACK_IM':'float','LAST_BACK_ANNULUS':'float','BP_RP':'float','GaiaDR3_ID':'int','MAG_APER_AB_CORR':'float','MAG_PSF_AB_CORR':'float','AIRMASS':'float','ZP_LAST':'float'})
 
         match_radius = self.match_radius
         print('Matching sources with a radius of {} arcsec'.format(match_radius))
@@ -562,13 +562,13 @@ class LAST_ABSCAL_Analysis(object):
                          'Dec': last_cat['Dec'][mask_match], 'JD': info_cat.header['JD'] * np.ones(len(idx_match_ref)),
                          'MAG_PSF_AB': abmag_psf_, 'MAG_PSF_AB_ERR': abmag_psf_err,
                          'MAG_APER_AB': abmag_aper_, 'MAG_APER_AB_ERR': abmag_aper_err, 'AB_ZP': abzp_, 'SN': sn_,
-                         'MAG_PSF_LAST': last_cat['MAG_PSF'][mask_match], 'MAG_PSF_LAST_ERR': abmag_psf_err,
-                         'MAG_APER_LAST': last_cat['MAG_APER_3'][mask_match],
+                         'MAG_PSF_LAST': last_cat['MAG_AB_PSF'][mask_match], 'MAG_PSF_LAST_ERR': abmag_psf_err,
+                         'MAG_APER_LAST': last_cat['MAG_AB_APER_3'][mask_match],
                          'MAG_APER_LAST_ERR': last_cat['MAGERR_APER_3'][mask_match],'LAST_FLAGS':last_flags,'LAST_X':last_x,'LAST_Y':last_y,
                          'FWHM':fwhm_,'ELLIPTICITY':ellipticity_,'FLUX_APER_3':flux_aper_,'FLUX_PSF':flux_psf_,'FIELD_CORR':fc_,
                          'LAST_X2':last_x2,'LAST_Y2':last_y2,'LAST_XY':last_xy,'LAST_BACK_IM':last_back_im,'LAST_BACK_ANNULUS':last_back_annulus,
                          'BP_RP':np.full(len(idx_match_ref), np.nan),'GaiaDR3_ID':np.full(len(idx_match_ref), np.nan),
-                         'MAG_APER_AB_CORR':np.full(len(idx_match_ref), np.nan),'MAG_PSF_AB_CORR':np.full(len(idx_match_ref), np.nan),'AIRMASS':airmass_}
+                         'MAG_APER_AB_CORR':np.full(len(idx_match_ref), np.nan),'MAG_PSF_AB_CORR':np.full(len(idx_match_ref), np.nan),'AIRMASS':airmass_,'ZP_LAST':last_cat['AB_ZP'][mask_match]}
 
             matched_sources_df = pd.concat([matched_sources_df, pd.DataFrame(df_i_dict)], ignore_index=True)
 

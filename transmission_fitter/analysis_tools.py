@@ -512,7 +512,7 @@ class LAST_ABSCAL_Analysis(object):
                 n_coadd = 1 
             last_cat_apy = SkyCoord(ra=last_cat['RA'], dec=last_cat['Dec'], unit='deg', frame='icrs')
             idx, sep2d, d3d = last_cat_apy.match_to_catalog_sky(last_cat_ref_apy)
-
+            ap_corr_psf = info_cat.header['APCOR_PS']
             mask_match = sep2d.to(u.arcsec) < match_radius * u.arcsec
             idx_match_ref = idx[mask_match]
 
@@ -536,7 +536,7 @@ class LAST_ABSCAL_Analysis(object):
             abzp_ = abscal_obj.ResidFunc(params_list[j], x_c, calc_zp=True)
             fc_ = abscal_obj.ResidFunc(params_list[j],x_c,calc_zp=True,field_corr_ = True)
 
-            abmag_psf_ = abzp_ - 2.5 * np.log10(flux_psf_)
+            abmag_psf_ = abzp_ - 2.5 * np.log10(flux_psf_) + ap_corr_psf
             abmag_psf_err = 1.086 / sn_
 
             abmag_aper_ = abzp_ - 2.5 * np.log10(flux_aper_)

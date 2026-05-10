@@ -1220,9 +1220,9 @@ class LAST_ABSCAL_Analysis(object):
             ab_mag_arr_np = np.array(ab_mag_arr)
             rms_arr_np = np.array(rms_arr)
             mask_12_15 = (ab_mag_arr_np >= 12) & (ab_mag_arr_np <= 15)
-            mean_12_15 = np.mean(rms_arr_np[mask_12_15])
+            median_12_15 = np.median(rms_arr_np[mask_12_15])
             std_12_15 = np.std(rms_arr_np[mask_12_15])
-            print(f'{item}: mean RMS for 12 <= mag <= 15: {mean_12_15:.4f} mag, std: {std_12_15:.4f} mag')
+            print(f'{item}: median RMS for 12 <= mag <= 15: {median_12_15:.4f} mag, std: {std_12_15:.4f} mag')
 
         ax.set_xlabel('MAG')
         ax.set_xlim(10., 21.)

@@ -1019,7 +1019,26 @@ class LAST_ABSCAL_Analysis(object):
         ab_mag_arr_best = np.concatenate((np.array(ab_mag_arr_aper)[mask_aper], np.array(ab_mag_arr_psf)[~mask_aper]))
         rms_arr_best = np.concatenate((np.array(rms_arr_aper)[mask_aper], np.array(rms_arr_psf)[~mask_aper]))
 
-        ax.scatter(ab_mag_arr_best, rms_arr_best, s=5, color='C0')
+        ax.scatter(ab_mag_arr_best, rms_arr_best, s=5, color='C0', alpha=0.5, zorder=1)
+
+        # Median RMS in bins of 0.2 mag starting from mag 12
+        mag_arr = np.array(ab_mag_arr_best)
+        rms_arr_np = np.array(rms_arr_best)
+        mag_max = np.nanmax(mag_arr)
+        bin_edges = np.arange(12., mag_max + 0.2, 0.2)
+        bin_centers = bin_edges[:-1] + 0.1
+        median_rms = []
+        for lo, hi in zip(bin_edges[:-1], bin_edges[1:]):
+            mask_bin = (mag_arr >= lo) & (mag_arr < hi)
+            if mask_bin.sum() > 0:
+                median_rms.append(np.nanmedian(rms_arr_np[mask_bin]))
+            else:
+                median_rms.append(np.nan)
+        median_rms = np.array(median_rms)
+        valid = np.isfinite(median_rms)
+        ax.plot(bin_centers[valid], median_rms[valid], color='C1', lw=2, marker='o',
+                markersize=5, label='Median RMS (0.2 mag bins)', zorder=2)
+        ax.legend()
 
         ax.set_xlabel('AB MAG [mag]')
         ax.set_xlim(10., np.max(ab_mag_arr_psf) + 0.3)

@@ -11,6 +11,7 @@ import gaiaxpy
 import catsHTM
 import time
 import os
+import pyvo
 
 
 class GaiaQuery(object):
@@ -74,6 +75,7 @@ class GaiaQuery(object):
         self.sep_subframe = None #astropy quantity
         self.path_HTM = '/mnt/euclid/catsHTM'
         self.sampling = np.linspace(336.,1020.,343,endpoint=True)
+        self.df_gaia_raw = None  # cached Gaia TAP query result (populated on first call)
 
         if 'coadd' in catfile:
             self.ncoadd = info_cat.header['NCOADD']
@@ -200,11 +202,14 @@ class GaiaQuery(object):
         Returns:
             df_match (DataFrame): DataFrame containing the matched sources from both catalogs.
         """
-        start_query = time.time()
-        
-        df_gaia_raw = self.run_query_to_pandas(self.create_query())
-        
-        print('Query time: ',time.time()-start_query)
+        if self.df_gaia_raw is None:
+            start_query = time.time()
+            self.df_gaia_raw = self.run_query_to_pandas(self.create_query())
+            print('Query time: ', time.time()-start_query)
+        else:
+            print('Using cached Gaia catalog.')
+
+        df_gaia_raw = self.df_gaia_raw
 
         last_cat = self.last_cat
         info_cat = self.info_cat
@@ -368,6 +373,12 @@ class GaiaQuery(object):
             calibrated_spectra_unsrt, sampling = self.retrieve_gaia_spectra_from_ids(source_ids)
             print('Spectra calibration time: ',time.time()-start)
             print('Number of calibrators (Gmag < 16): ',len(df_match))
+
+            # Keep only sources for which spectra were actually retrieved
+            retrieved_ids = calibrated_spectra_unsrt.index.tolist()
+            df_match = df_match[df_match['GaiaDR3_ID'].isin(retrieved_ids)].reset_index(drop=True)
+            print(f'Calibrators with XP spectra: {len(df_match)}')
+
             idx_gaiaid = df_match['GaiaDR3_ID'].values
             calibrated_spectra = calibrated_spectra_unsrt.loc[idx_gaiaid].reset_index(drop=True)
 
@@ -398,59 +409,86 @@ class GaiaQuery(object):
     
     
 
-    def retrieve_gaia_spectra_from_ids(self, source_ids, chunk_size=50):
+    def retrieve_gaia_spectra_from_ids(self, source_ids, chunk_size=200):
         """
-        Retrieves Gaia XP sampled spectra for the given source IDs using the
-        Gaia archive TAP service (astroquery), without relying on gaiaxpy.
+        Retrieves Gaia XP sampled spectra for the given source IDs.
+
+        Primary source: ARI-Gaia TAP service (Heidelberg mirror,
+        https://gaia.ari.uni-heidelberg.de/tap), which hosts
+        gaiadr3.xp_sampled_mean_spectrum via a stable pyvo TAP query.
+
+        Fallback: ESA Gaia archive datalink (Gaia.load_data). This path is
+        known to be intermittently unavailable during ESA DR4 migration; it is
+        tried only when the primary source raises an exception.
 
         The returned flux arrays are sampled on a fixed wavelength grid of 343
-        points from 336 to 1020 nm (2 nm steps), consistent with
-        gaiadr3.xp_sampled_mean_spectrum.
-
-        IDs are sent in chunks to avoid HTTP 500 errors from large IN clauses.
+        points from 336 to 1020 nm (2 nm steps).
 
         Parameters:
             source_ids (list): List of Gaia DR3 source IDs (int or str).
-            chunk_size (int): Number of IDs per TAP query (default 50).
+            chunk_size (int): IDs per TAP IN-clause query (default 200).
 
         Returns:
             spectra_df (DataFrame): DataFrame indexed by source_id with columns
-                'flux' (np.ndarray, length 343) and 'flux_error' (np.ndarray, length 343).
+                'flux' (np.ndarray, length 343) and 'flux_error' (np.ndarray).
             sampling (np.ndarray): Wavelength array in nm, shape (343,).
         """
         sampling = np.linspace(336., 1020., 343, endpoint=True)
-
         ids = [int(sid) for sid in source_ids]
         chunks = [ids[i:i + chunk_size] for i in range(0, len(ids), chunk_size)]
-
         rows = []
-        sampling = None
-        for i, chunk in enumerate(chunks):
-            print(f'Querying chunk {i+1}/{len(chunks)} ({len(chunk)} IDs)...')
-            datalink = Gaia.load_data(
-                ids=chunk,
-                data_release='Gaia DR3',
-                data_structure='INDIVIDUAL',
-                retrieval_type='XP_SAMPLED',
-                format='votable',
-                overwrite_output_file=True,
-            )
-            # Keys are like 'XP_SAMPLED-Gaia DR3 <source_id>.xml'
-            for key, table_list in datalink.items():
-                src_id = int(key.split('DR3 ')[1].replace('.xml', ''))
-                for tbl in table_list:
-                    t = tbl.to_table()
-                    if sampling is None:
-                        sampling = np.array(t['wavelength'])
-                    rows.append({
-                        'source_id': src_id,
-                        'flux': np.array(t['flux']),
-                        'flux_error': np.array(t['flux_error']),
-                    })
-            time.sleep(1)
 
-        if sampling is None:
-            sampling = np.linspace(336., 1020., 343, endpoint=True)
+        # --- Primary: ARI-Gaia TAP (Heidelberg) ---
+        _ARI_TAP = 'https://gaia.ari.uni-heidelberg.de/tap'
+        ari_ok = True
+        try:
+            tap = pyvo.dal.TAPService(_ARI_TAP)
+            for i, chunk in enumerate(chunks):
+                print(f'Querying chunk {i+1}/{len(chunks)} ({len(chunk)} IDs) via ARI-Gaia...')
+                id_list = ','.join(str(sid) for sid in chunk)
+                result = tap.search(
+                    'SELECT source_id, flux, flux_error '
+                    'FROM gaiadr3.xp_sampled_mean_spectrum '
+                    f'WHERE source_id IN ({id_list})'
+                )
+                tbl = result.to_table()
+                for row in tbl:
+                    rows.append({
+                        'source_id': int(row['source_id']),
+                        'flux': np.array(row['flux']),
+                        'flux_error': np.array(row['flux_error']),
+                    })
+                time.sleep(0.2)
+        except Exception as e:
+            print(f'ARI-Gaia retrieval failed ({e}). Falling back to ESA Gaia archive...')
+            ari_ok = False
+
+        if not ari_ok:
+            # --- Fallback: ESA Gaia archive datalink ---
+            rows = []
+            for i, chunk in enumerate(chunks):
+                print(f'Querying chunk {i+1}/{len(chunks)} ({len(chunk)} IDs) via ESA...')
+                try:
+                    datalink = Gaia.load_data(
+                        ids=chunk,
+                        data_release='Gaia DR3',
+                        data_structure='INDIVIDUAL',
+                        retrieval_type='XP_SAMPLED',
+                        format='votable',
+                        overwrite_output_file=True,
+                    )
+                    for key, table_list in datalink.items():
+                        src_id = int(key.split('DR3 ')[1].replace('.xml', ''))
+                        for tbl in table_list:
+                            t = tbl.to_table()
+                            rows.append({
+                                'source_id': src_id,
+                                'flux': np.array(t['flux']),
+                                'flux_error': np.array(t['flux_error']),
+                            })
+                    time.sleep(1)
+                except Exception as e2:
+                    print(f'ESA chunk {i+1} failed: {e2}')
 
         spectra_df = pd.DataFrame(rows).set_index('source_id')
         print(f'Retrieved spectra for {len(spectra_df)} sources.')

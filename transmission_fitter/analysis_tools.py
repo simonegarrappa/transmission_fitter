@@ -55,8 +55,10 @@ class LAST_ABSCAL_Analysis(object):
 
         self.calibrated_spectra = None
         self.sampling = self.wvl_arr
-        
-        
+        self.df_gaia_raw = None
+        self._gaia_cache_region = None
+
+
 
         pass
 
@@ -72,12 +74,17 @@ class LAST_ABSCAL_Analysis(object):
         """
         print('Calibrating catalog: {}'.format(catfile))
         abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
-        
+        abscal_obj.df_gaia_raw = self.df_gaia_raw
+        abscal_obj._gaia_cache_region = self._gaia_cache_region
+        old_cache_region = self._gaia_cache_region
+
         if self.calibrated_spectra is None or self.useHTM is True:
             self.get_spectra = True
             _, calibrated_spectra, sampling, _2 = abscal_obj.match_Gaia(get_spectra=self.get_spectra)
             self.calibrated_spectra = calibrated_spectra
             self.sampling = sampling
+            self.df_gaia_raw = abscal_obj.df_gaia_raw
+            self._gaia_cache_region = abscal_obj._gaia_cache_region
             self.get_spectra = False
         else:
             print('Using previously retrieved Gaia spectra for calibration.')
@@ -86,6 +93,17 @@ class LAST_ABSCAL_Analysis(object):
             abscal_obj.sampling = self.sampling
 
             source_ids, calibrated_spectra, sampling, df_match = abscal_obj.match_Gaia(get_spectra=self.get_spectra)
+            self.df_gaia_raw = abscal_obj.df_gaia_raw
+            self._gaia_cache_region = abscal_obj._gaia_cache_region
+
+            # If the Gaia region was refreshed, cached spectra correspond to different stars — re-fetch
+            if old_cache_region is not None and self._gaia_cache_region != old_cache_region:
+                print('Sky region changed: re-fetching Gaia spectra for new region.')
+                source_ids, calibrated_spectra, sampling, df_match = abscal_obj.match_Gaia(get_spectra=True)
+                self.calibrated_spectra = calibrated_spectra
+                self.sampling = sampling
+                self.df_gaia_raw = abscal_obj.df_gaia_raw
+                self._gaia_cache_region = abscal_obj._gaia_cache_region
 
         
         if self.get_spectra == False:
@@ -475,7 +493,7 @@ class LAST_ABSCAL_Analysis(object):
             n_sources_in_cat.append(len(last_cat))
             try:
                 limmag_list.append(info_cat.header['LIMMAG'])
-            except KeyError:
+            except:
                 limmag_list.append(None)
             catlist_selection.append(cat_i)
 
@@ -1555,14 +1573,14 @@ class LAST_ABSCAL_Analysis(object):
         params_cal = self.params_cal
         catfile = self.catfile
 
-        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4',
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
                    'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4']
         df_results = pd.DataFrame(columns=columns)
 
         for i in range(len(params_cal)):
             row = [catfile.strip(), params_cal[i]['norm'].value, params_cal[i]['kx0'].value,params_cal[i]['ky0'].value, params_cal[i]['kx'].value,
                    params_cal[i]['ky'].value, params_cal[i]['kx2'].value,
-                   params_cal[i]['kx3'].value, params_cal[i]['ky2'].value, params_cal[i]['ky3'].value,params_cal[i]['kx4'].value,params_cal[i]['ky4'].value,
+                   params_cal[i]['kx3'].value, params_cal[i]['ky2'].value, params_cal[i]['ky3'].value,params_cal[i]['kx4'].value,params_cal[i]['ky4'].value,params_cal[i]['kxy'].value,
                    params_cal[i]['amplitude'].value, params_cal[i]['center'].value, params_cal[i]['sigma'].value,
                    params_cal[i]['gamma'].value, params_cal[i]['pressure'].value, params_cal[i]['AOD'].value,
                    params_cal[i]['alpha'].value, params_cal[i]['ozone_col'].value, params_cal[i]['PW'].value,

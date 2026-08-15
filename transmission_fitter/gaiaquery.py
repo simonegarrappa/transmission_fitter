@@ -13,6 +13,10 @@ import time
 import os
 import pyvo
 
+# Primary TAP service for Gaia DR3 XP sampled spectra (Heidelberg ARI-Gaia mirror).
+# Used by retrieve_gaia_spectra_from_ids; ESA archive is the fallback.
+ARI_TAP_URL = 'https://gaia.ari.uni-heidelberg.de/tap'
+
 
 class GaiaQuery(object):
     """
@@ -76,6 +80,8 @@ class GaiaQuery(object):
         self.path_HTM = '/mnt/euclid/catsHTM'
         self.sampling = np.linspace(336.,1020.,343,endpoint=True)
         self.df_gaia_raw = None  # cached Gaia TAP query result (populated on first call)
+        self._gaia_cache_region = None  # (ra_deg, dec_deg, radius_deg) of the cached query
+        self.gaia_query_buffer = 0.1    # extra deg added to query radius to absorb pointing drifts
 
         if 'coadd' in catfile:
             self.ncoadd = info_cat.header['NCOADD']
@@ -111,7 +117,7 @@ class GaiaQuery(object):
         if Ra_max < 360.:
             query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, gaia.pmra AS g_pmra, gaia.pmdec AS g_pmdec, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
             FROM gaiadr3.gaia_source AS gaia \
-            WHERE DISTANCE(POINT("+str(cRa)+","+str(cDec)+"),POINT(gaia.ra, gaia.dec)) < "+str(sep_subframe.deg)+" AND \
+            WHERE 1=CONTAINS(POINT('ICRS',gaia.ra, gaia.dec),CIRCLE('ICRS',"+str(cRa)+","+str(cDec)+","+str(sep_subframe.deg + self.gaia_query_buffer)+")) AND \
             has_xp_sampled = 'TRUE' AND \
             phot_g_mean_mag > 12 AND \
             classprob_dsc_combmod_star > 0.9 AND \
@@ -123,7 +129,7 @@ class GaiaQuery(object):
             FROM gaiadr3.gaia_source AS gaia \
             WHERE (gaia.ra BETWEEN "+str(0.)+" AND "+str(Ra_max)+" OR \
             gaia.ra BETWEEN "+str(Ra_min)+" AND "+str(360.)+") AND \
-            gaia.dec BETWEEN "+str(Dec_min)+" AND "+str(Dec_max)+" AND \
+            gaia.dec BETWEEN "+str(Dec_min - self.gaia_query_buffer)+" AND "+str(Dec_max + self.gaia_query_buffer)+" AND \
             has_xp_sampled = 'TRUE' AND \
             phot_g_mean_mag > 12 AND \
             classprob_dsc_combmod_star > 0.9 AND \
@@ -168,33 +174,78 @@ class GaiaQuery(object):
         
         query = "SELECT gaia.source_id, gaia.ra AS g_ra, gaia.dec AS g_dec, gaia.pmra AS g_pmra, gaia.pmdec AS g_pmdec, teff_gspphot AS g_teff, phot_g_mean_mag AS g_mag, bp_rp AS g_color \
             FROM gaiadr3.gaia_source AS gaia \
-            WHERE DISTANCE(POINT("+str(cRa)+","+str(cDec)+"),POINT(gaia.ra, gaia.dec)) < "+str(sep_subframe.deg)
-        
+            WHERE 1=CONTAINS(POINT('ICRS',gaia.ra, gaia.dec),CIRCLE('ICRS',"+str(cRa)+","+str(cDec)+","+str(sep_subframe.deg)+"))"
+
 
         return query
     
     
         
-    def run_query_to_pandas(self, query):
+    def run_query_to_pandas(self, query, max_retries=2, backoff_factor=2.0):
         """
-        Runs the Gaia query and returns the results as a pandas DataFrame.
+        Runs the Gaia source-catalog query and returns the results as a pandas DataFrame.
+
+        Primary source: ARI-Gaia TAP service (Heidelberg mirror, ARI_TAP_URL),
+        which hosts gaiadr3.gaia_source via a stable pyvo TAP query. Note this
+        service uses the ADQL geometry dialect with an explicit coordinate
+        system, i.e. CONTAINS(POINT('ICRS',..),CIRCLE('ICRS',..)) as built by
+        create_query / create_general_query.
+
+        Fallback: ESA Gaia archive (Gaia.launch_job_async). This path is known
+        to be intermittently unavailable during ESA DR4 migration (it raises
+        "Connection reset by peer"); it is tried only when the primary source
+        raises an exception.
 
         Parameters:
             query (str): The query string for querying Gaia catalog.
+            max_retries (int): Number of retry attempts on connection errors (ESA fallback).
+            backoff_factor (float): Multiplier for wait time between retries (ESA fallback).
 
         Returns:
             df_gaia (DataFrame): The Gaia catalog data as a pandas DataFrame.
         """
-        job = Gaia.launch_job_async(query)
-        results = job.get_results()
+        df_gaia = None
 
-        df_gaia = results.to_pandas()
-        df_gaia['g_pmra'].fillna(0., inplace=True)
-        df_gaia['g_pmdec'].fillna(0.,inplace=True)
+        # --- Primary: ARI-Gaia TAP (Heidelberg) ---
+        try:
+            tap = pyvo.dal.TAPService(ARI_TAP_URL)
+            results = tap.search(query)
+            df_gaia = results.to_table().to_pandas()
+        except Exception as e:
+            print(f'ARI-Gaia source query failed ({e}). Falling back to ESA Gaia archive...')
+
+        # --- Fallback: ESA Gaia archive ---
+        if df_gaia is None:
+            wait = 5.0
+            for attempt in range(max_retries):
+                try:
+                    job = Gaia.launch_job_async(query)
+                    df_gaia = job.get_results().to_pandas()
+                    break
+                except (ConnectionResetError, ConnectionError, OSError) as e:
+                    if attempt < max_retries - 1:
+                        print(f'Gaia connection error (attempt {attempt+1}/{max_retries}): {e}. Retrying in {wait:.0f}s...')
+                        time.sleep(wait)
+                        wait *= backoff_factor
+                    else:
+                        raise RuntimeError(f'Gaia query failed after {max_retries} attempts: {e}') from e
+
+        df_gaia['g_pmra'] = df_gaia['g_pmra'].fillna(0.)
+        df_gaia['g_pmdec'] = df_gaia['g_pmdec'].fillna(0.)
         return df_gaia
     
     
         
+    def _is_cache_valid(self):
+        """Check whether df_gaia_raw covers the current catalog's search circle."""
+        if self.df_gaia_raw is None or self._gaia_cache_region is None:
+            return False
+        cached_ra, cached_dec, cached_radius = self._gaia_cache_region
+        current_center = SkyCoord(ra=self.cRa, dec=self.cDec, frame='icrs')
+        cached_center = SkyCoord(ra=cached_ra * u.deg, dec=cached_dec * u.deg, frame='icrs')
+        sep = current_center.separation(cached_center).deg
+        return sep + self.sep_subframe.deg <= cached_radius
+
     def match_last_and_gaia(self):
         """
         Matches sources from the LAST catalog with sources from the Gaia catalog based on their coordinates.
@@ -202,12 +253,17 @@ class GaiaQuery(object):
         Returns:
             df_match (DataFrame): DataFrame containing the matched sources from both catalogs.
         """
-        if self.df_gaia_raw is None:
-            start_query = time.time()
-            self.df_gaia_raw = self.run_query_to_pandas(self.create_query())
-            print('Query time: ', time.time()-start_query)
-        else:
+        query = self.create_query()  # always sets self.cRa, self.cDec, self.sep_subframe
+
+        if self._is_cache_valid():
             print('Using cached Gaia catalog.')
+        else:
+            if self.df_gaia_raw is not None:
+                print('Sky region changed: re-running Gaia query.')
+            start_query = time.time()
+            self.df_gaia_raw = self.run_query_to_pandas(query)
+            print('Query time: ', time.time() - start_query)
+            self._gaia_cache_region = (self.cRa.deg, self.cDec.deg, self.sep_subframe.deg + self.gaia_query_buffer)
 
         df_gaia_raw = self.df_gaia_raw
 
@@ -439,10 +495,9 @@ class GaiaQuery(object):
         rows = []
 
         # --- Primary: ARI-Gaia TAP (Heidelberg) ---
-        _ARI_TAP = 'https://gaia.ari.uni-heidelberg.de/tap'
         ari_ok = True
         try:
-            tap = pyvo.dal.TAPService(_ARI_TAP)
+            tap = pyvo.dal.TAPService(ARI_TAP_URL)
             for i, chunk in enumerate(chunks):
                 print(f'Querying chunk {i+1}/{len(chunks)} ({len(chunk)} IDs) via ARI-Gaia...')
                 id_list = ','.join(str(sid) for sid in chunk)

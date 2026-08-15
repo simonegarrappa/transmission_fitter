@@ -18,6 +18,7 @@ from scipy.interpolate import CubicSpline,interp1d
 from scipy.special import legendre
 from numpy.polynomial.chebyshev import Chebyshev
 import warnings
+warnings.filterwarnings("ignore")
 import os
 np.random.seed(6)
 
@@ -103,6 +104,8 @@ class AbsoluteCalibration(object):
         self.max_int_gaia = 1020
 
         self.useHTM = useHTM
+        self.df_gaia_raw = None
+        self._gaia_cache_region = None
 
         pass
     
@@ -641,12 +644,22 @@ class AbsoluteCalibration(object):
         if self.useHTM:
             get_spectra = True
         if get_spectra:
-            source_ids, calibrated_spectra, sampling, df_match = GaiaQuery(self.catfile).retrieve_gaia_spectra(useHTM=self.useHTM)
+            gq = GaiaQuery(self.catfile)
+            gq.df_gaia_raw = self.df_gaia_raw
+            gq._gaia_cache_region = self._gaia_cache_region
+            source_ids, calibrated_spectra, sampling, df_match = gq.retrieve_gaia_spectra(useHTM=self.useHTM)
+            self.df_gaia_raw = gq.df_gaia_raw
+            self._gaia_cache_region = gq._gaia_cache_region
         else:
             print('Matching already downloaded spectra...\n')
-            df_match_raw = GaiaQuery(self.catfile).match_last_and_gaia()
+            gq = GaiaQuery(self.catfile)
+            gq.df_gaia_raw = self.df_gaia_raw
+            gq._gaia_cache_region = self._gaia_cache_region
+            df_match_raw = gq.match_last_and_gaia()
+            self.df_gaia_raw = gq.df_gaia_raw
+            self._gaia_cache_region = gq._gaia_cache_region
             source_ids = list(self.calibrated_spectra['GaiaDR3_ID'].astype(str))
-            
+
             df_match = df_match_raw[df_match_raw['GaiaDR3_ID'].astype(str).isin(source_ids)].reset_index(drop=True)
             gaia_id_in_df_match = list(df_match['GaiaDR3_ID'].astype(str))
 
@@ -664,14 +677,14 @@ class AbsoluteCalibration(object):
             if not len(calibrated_spectra_matched) == len(df_match):
                 print('Warning: number of matched spectra and matched sources in df_match do not match!')
             df_match = df_match.sort_values('GaiaDR3_ID').reset_index(drop=True)
-            
+
             calibrated_spectra = calibrated_spectra_matched
 
-            
+
         source_ids = list(df_match['GaiaDR3_ID'].astype(str))
         self.source_ids = source_ids
         self.calibrated_spectra = calibrated_spectra
-        self.sampling = GaiaQuery(self.catfile).sampling
+        self.sampling = gq.sampling
         self.df_match = df_match
         print('Spectra retrieved for catalog file: ' + self.catfile)
         return source_ids, calibrated_spectra, self.sampling, df_match
@@ -706,7 +719,10 @@ class AbsoluteCalibration(object):
         
 
 
-        
+        ##TOREMOVE####
+        #df_match.to_csv('/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/df_Calibrators_Start.csv', index=False)
+
+        #####
     
         x = Mspectra
         y_c = np.zeros(len(df_match))
@@ -738,7 +754,32 @@ class AbsoluteCalibration(object):
         flag_4 = False
         flag_5 = False
         
-        
+        ###TOREMOVE####
+        '''
+        params_cal = params
+        catfile = self.catfile
+
+        last_cat, info_cat = LastCatUtils().tables_from_lastcat(self.catfile)
+        z_angle = LastCatUtils().get_zenith_from_cat(info_cat)
+        airmass_cat = LastCatUtils().get_airmass_from_cat(info_cat)
+
+
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                   'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4','AIRMASS','zenith_angle']
+        df_results = pd.DataFrame(columns=columns)
+
+        row = [catfile.strip(), params_cal['norm'].value, params_cal['kx0'].value,params_cal['ky0'].value, params_cal['kx'].value,
+                params_cal['ky'].value, params_cal['kx2'].value,
+                params_cal['kx3'].value, params_cal['ky2'].value, params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
+                params_cal['amplitude'].value, params_cal['center'].value, params_cal['sigma'].value,
+                params_cal['gamma'].value, params_cal['pressure'].value, params_cal['AOD'].value,
+                params_cal['alpha'].value, params_cal['ozone_col'].value, params_cal['PW'].value,
+                params_cal['temperature'].value, params_cal['r0'].value, params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value, airmass_cat, z_angle]
+        df_results.loc[0] = row
+        folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+        df_results.to_csv(folderout + 'PreFit_Params.csv', index=False)
+        '''
+        ##################################################
 
         #First fit, only normalisation
         params['norm'].set(vary = True)
@@ -757,9 +798,36 @@ class AbsoluteCalibration(object):
 
             fitter = Minimizer(self.ResidFunc, out0.params, fcn_args=(x, y,yerr))
             out0 = fitter.minimize(method='leastsq')
+
+            ###TOREMOVE####
+            #df_match.to_csv('/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/df_Calibrators_NormFit_Iter'+str(ij)+'.csv', index=False)
+            #####
         
         
         flag_0 = True
+
+
+        ###TOREMOVE####
+        '''
+        params_cal = out0.params
+        catfile = self.catfile
+
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                   'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4','AIRMASS','zenith_angle']
+        df_results = pd.DataFrame(columns=columns)
+
+        row = [catfile.strip(), params_cal['norm'].value, params_cal['kx0'].value,params_cal['ky0'].value, params_cal['kx'].value,
+                params_cal['ky'].value, params_cal['kx2'].value,
+                params_cal['kx3'].value, params_cal['ky2'].value, params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
+                params_cal['amplitude'].value, params_cal['center'].value, params_cal['sigma'].value,
+                params_cal['gamma'].value, params_cal['pressure'].value, params_cal['AOD'].value,
+                params_cal['alpha'].value, params_cal['ozone_col'].value, params_cal['PW'].value,
+                params_cal['temperature'].value, params_cal['r0'].value, params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value, airmass_cat, z_angle]
+        df_results.loc[0] = row
+        folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+        df_results.to_csv(folderout + 'After_FitNorm_Params.csv', index=False)
+        '''
+        ##################################################
 
         # Second fit, fit only center of QE model and normalisation
 
@@ -791,6 +859,31 @@ class AbsoluteCalibration(object):
         y = y[~mask_]
         yerr = yerr[~mask_]
         df_match = df_match[~mask_]
+
+        ###TOREMOVE####
+        '''
+        df_match.to_csv('/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/df_Calibrators_QECenterFit.csv', index=False)
+
+        params_cal = params_fit
+        catfile = self.catfile
+
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                   'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4','AIRMASS','zenith_angle']
+        df_results = pd.DataFrame(columns=columns)
+
+        
+        row = [catfile.strip(), params_cal['norm'].value, params_cal['kx0'].value,params_cal['ky0'].value, params_cal['kx'].value,
+                params_cal['ky'].value, params_cal['kx2'].value,
+                params_cal['kx3'].value, params_cal['ky2'].value, params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
+                params_cal['amplitude'].value, params_cal['center'].value, params_cal['sigma'].value,
+                params_cal['gamma'].value, params_cal['pressure'].value, params_cal['AOD'].value,
+                params_cal['alpha'].value, params_cal['ozone_col'].value, params_cal['PW'].value,
+                params_cal['temperature'].value, params_cal['r0'].value, params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value, airmass_cat, z_angle]
+        df_results.loc[0] = row
+        folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+        df_results.to_csv(folderout + 'After_FitQE_Params.csv', index=False)
+  '''
+        ##################################################
 
         ## Legendre polynomials term (still tentative)
         leg_flag = False
@@ -833,11 +926,37 @@ class AbsoluteCalibration(object):
             params_fit['ky4'].set(value =np.random.normal(0., 0.3, 1)[0],vary=True)
             params_fit['kxy'].set(value =np.random.normal(0., 0.3, 1)[0],vary=True)
             
+        ###TOREMOVE####
+        '''
+        params_cal = params_fit
+        catfile = self.catfile
 
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                   'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4', 'AIRMASS','zenith_angle']
+        df_results = pd.DataFrame(columns=columns)
+
+        row = [catfile.strip(), params_cal['norm'].value, params_cal['kx0'].value,params_cal['ky0'].value, params_cal['kx'].value,
+               params_cal['ky'].value, params_cal['kx2'].value,
+               params_cal['kx3'].value, params_cal['ky2'].value, params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
+               params_cal['amplitude'].value, params_cal['center'].value, params_cal['sigma'].value,
+               params_cal['gamma'].value, params_cal['pressure'].value, params_cal['AOD'].value,
+                   params_cal['alpha'].value, params_cal['ozone_col'].value, params_cal['PW'].value,
+                   params_cal['temperature'].value, params_cal['r0'].value, params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value, airmass_cat, z_angle]
+        df_results.loc[0] = row
+        folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+        df_results.to_csv(folderout + 'Initialization_Spatial_Params.csv', index=False)
+        '''
+        ##################################################
         
 
         fitter4_bis = Minimizer(self.ResidFunc, params_fit, fcn_args=(x, y,yerr))
         out4_bis = fitter4_bis.minimize(method='leastsq')
+
+        ###TOREMOVE####
+        #residuals_ = self.ResidFunc(out4_bis.params,x_in=x,data=y,magres=True)
+        #df_match['residuals'] = residuals_
+        #df_match.to_csv('/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/df_Calibrators_SpatialFit_Iter0_wResiduals.csv', index=False)
+        ####
         if len(x) > 30:
             for ij in range(3):
                 residuals_ = self.ResidFunc(out4_bis.params,x_in=x,data=y,magres=True)
@@ -854,9 +973,48 @@ class AbsoluteCalibration(object):
                 fitter = Minimizer(self.ResidFunc, out4_bis.params, fcn_args=(x, y,yerr))
                 out4_bis = fitter.minimize(method='leastsq')
 
-
-
+                ##TOREMOVE####
+                #df_match.to_csv('/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/df_Calibrators_SpatialFit_Iter'+str(ij)+'.csv', index=False)
+                '''
+                if ij in [0,1]:
+                    param_cal = out4_bis.params
+                    catfile = self.catfile
+                    columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                               'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4','AIRMASS','zenith_angle']
+                    df_results = pd.DataFrame(columns=columns)
+                    row = [catfile.strip(), param_cal['norm'].value, param_cal['kx0'].value,param_cal['ky0'].value, param_cal['kx'].value,
+                            param_cal['ky'].value, param_cal['kx2'].value,
+                            param_cal['kx3'].value, param_cal['ky2'].value, param_cal['ky3'].value, param_cal['kx4'].value, param_cal['ky4'].value, param_cal['kxy'].value,
+                            param_cal['amplitude'].value, param_cal['center'].value, param_cal['sigma'].value,
+                            param_cal['gamma'].value, param_cal['pressure'].value, param_cal['AOD'].value,
+                            param_cal['alpha'].value, param_cal['ozone_col'].value, param_cal['PW'].value, param_cal['temperature'].value, param_cal['r0'].value, param_cal['r1'].value, param_cal['r2'].value, param_cal['r3'].value, param_cal['r4'].value, airmass_cat, z_angle]
+                    df_results.loc[0] = row
+                    folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+                    df_results.to_csv(folderout + 'After_SpatialFit_Iter'+str(ij)+'_Params.csv', index=False)
+                '''
         params_fit = out4_bis.params
+
+        ###TOREMOVE####
+        '''
+        params_cal = params_fit
+        catfile = self.catfile
+
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                   'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4','AIRMASS','zenith_angle']
+        df_results = pd.DataFrame(columns=columns)
+
+        row = [catfile.strip(), params_cal['norm'].value, params_cal['kx0'].value,params_cal['ky0'].value, params_cal['kx'].value,
+                params_cal['ky'].value, params_cal['kx2'].value,
+                params_cal['kx3'].value, params_cal['ky2'].value, params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
+                params_cal['amplitude'].value, params_cal['center'].value, params_cal['sigma'].value,
+                params_cal['gamma'].value, params_cal['pressure'].value, params_cal['AOD'].value,
+                params_cal['alpha'].value, params_cal['ozone_col'].value, params_cal['PW'].value,
+                params_cal['temperature'].value, params_cal['r0'].value, params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value, airmass_cat, z_angle]
+        df_results.loc[0] = row
+        folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+        df_results.to_csv(folderout + 'After_FitSpatial_Params.csv', index=False)
+        '''
+        ##################################################
 
         params_fit['kx0'].set(vary=False)
         params_fit['ky0'].set(vary=False)
@@ -880,6 +1038,29 @@ class AbsoluteCalibration(object):
 
 
         params_fit = out5.params
+
+        ###TOREMOVE####
+        '''
+        params_cal = params_fit
+        catfile = self.catfile
+
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                   'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4','AIRMASS','zenith_angle']
+        df_results = pd.DataFrame(columns=columns)
+
+        row = [catfile.strip(), params_cal['norm'].value, params_cal['kx0'].value,params_cal['ky0'].value, params_cal['kx'].value,
+                params_cal['ky'].value, params_cal['kx2'].value,
+                params_cal['kx3'].value, params_cal['ky2'].value, params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
+                params_cal['amplitude'].value, params_cal['center'].value, params_cal['sigma'].value,
+                params_cal['gamma'].value, params_cal['pressure'].value, params_cal['AOD'].value,
+                params_cal['alpha'].value, params_cal['ozone_col'].value, params_cal['PW'].value,
+                params_cal['temperature'].value, params_cal['r0'].value, params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value, airmass_cat, z_angle]
+        df_results.loc[0] = row
+        folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+        df_results.to_csv(folderout + 'After_ReFitNorm_after_Spatial_Params.csv', index=False)
+        '''
+        ##################################################
+
         params_fit['norm'].set(vary = False)
         params_fit['ozone_col'].set(vary = False)
         params_fit['PW'].set(vary = True)
@@ -901,11 +1082,44 @@ class AbsoluteCalibration(object):
         #df_match.to_pickle(RES_DYR+'/PostChecks_DB_subframe'+ str('{0:03}'.format(sf_num)) +'.pkl')
 
         params_to_save = out6.params
-        #print('Remaining calibrators: ' + str(len(x)))
+
+        ###TOREMOVE####
+        '''
+        params_cal = params_to_save
+        catfile = self.catfile
+
+        columns = ['FILENAME', 'norm', 'kx0','ky0', 'kx', 'ky', 'kx2', 'kx3', 'ky2', 'ky3','kx4','ky4','kxy',
+                   'amplitude', 'center', 'sigma', 'gamma', 'pressure', 'AOD', 'alpha', 'ozone_col', 'PW', 'temperature','r0','r1','r2','r3','r4','AIRMASS','zenith_angle']
+        df_results = pd.DataFrame(columns=columns)
+
+        row = [catfile.strip(), params_cal['norm'].value, params_cal['kx0'].value,params_cal['ky0'].value, params_cal['kx'].value,
+                params_cal['ky'].value, params_cal['kx2'].value,
+                params_cal['kx3'].value, params_cal['ky2'].value, params_cal['ky3'].value,params_cal['kx4'].value,params_cal['ky4'].value,params_cal['kxy'].value,
+                params_cal['amplitude'].value, params_cal['center'].value, params_cal['sigma'].value,
+                params_cal['gamma'].value, params_cal['pressure'].value, params_cal['AOD'].value,
+                params_cal['alpha'].value, params_cal['ozone_col'].value, params_cal['PW'].value,
+                params_cal['temperature'].value, params_cal['r0'].value, params_cal['r1'].value,params_cal['r2'].value,params_cal['r3'].value,params_cal['r4'].value, airmass_cat, z_angle]
+        df_results.loc[0] = row
+        folderout = '/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/'
+        df_results.to_csv(folderout + 'After_FitAtm_Params.csv', index=False)
+        '''
+        ##################################################
+        print('Remaining calibrators: ' + str(len(x)))
         #print('We have lost' + str(1-len(x)/nc_orig) + ' percent calibrators')
 
 
         df_match_fit = df_match
+
+        ##TOREMOVE####
+        '''
+        last_x = df_match_fit['LAST_X'].values
+        last_y = df_match_fit['LAST_Y'].values
+
+        x_c = np.array([last_x, last_y])
+        df_match_fit['ZP'] = self.ResidFunc(params_fit,x_in=x_c,calc_zp = True)
+        df_match_fit.to_csv('/Users/astrosimo/Analysis/WIS/LAST_Images_check/Investigate_Photometric_Calibration/forDana/SingleFieldComparison/df_Calibrators_Final.csv', index=False)
+        '''
+        #####   
 
        
         return params_to_save,df_match_fit

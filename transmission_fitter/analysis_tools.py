@@ -440,7 +440,7 @@ class LAST_ABSCAL_Analysis(object):
                 os.makedirs(output_folder)
             reference_cat_noext = os.path.join(output_folder,os.path.basename(reference_cat_noext))
         
-        pd.to_csv(matched_sources_df, reference_cat_noext + '_PhotometryOutput.csv', index=False)
+        matched_sources_df.to_csv(reference_cat_noext + '_PhotometryOutput.csv', index=False)
 
         return matched_sources_df
 

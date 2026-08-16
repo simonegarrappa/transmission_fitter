@@ -46,6 +46,7 @@ class TestInitialisation:
 
     def test_default_flags_and_geometry(self, abscal):
         assert abscal.band == "LAST"
+        assert abscal.telescope == "LAST"
         assert abscal.use_atm is True
         assert abscal.useHTM is False
         assert abscal.ErrorEstimation == "ErrProp"
@@ -58,6 +59,169 @@ class TestInitialisation:
         assert np.all(abscal.transmission_jolly >= 0.0)
         assert len(abscal.Ref_mirror) == 3  # quadratic polyfit coefficients
         assert len(abscal.Trasm_corrector) == 3
+
+
+class TestTelescopeConfiguration:
+    """``telescope`` selects the collecting area and the sensor coordinate range."""
+
+    @pytest.mark.parametrize(
+        "telescope, band, radius_m",
+        [("LAST", "LAST", 0.1397), ("PAST", "SDSS_r", 0.1778)],
+    )
+    def test_collecting_area_per_telescope(self, single_catalog, telescope, band, radius_m):
+        obj = AbsoluteCalibration(
+            catfile=single_catalog, telescope=telescope, band=band, use_atm=False
+        )
+        assert obj.telescope == telescope
+        assert obj.Ageom == pytest.approx(math.pi * radius_m**2)
+
+    @pytest.mark.parametrize("telescope, band", [("LAST", "LAST"), ("PAST", "SDSS_r")])
+    def test_zero_point_uses_the_telescope_collecting_area(
+        self, single_catalog, telescope, band
+    ):
+        obj = AbsoluteCalibration(
+            catfile=single_catalog, telescope=telescope, band=band, use_atm=False
+        )
+        params = obj.Initialize_Params()
+        zp = float(obj.ResidFunc(params, np.array([100.0, 100.0]), calc_zp=True))
+
+        transm = obj.Calculate_Full_Transmission_from_params(params)
+        integral = np.trapezoid(3631.0e-26 * transm / WVL, x=WVL)
+        expected = 2.5 * np.log10(params["norm"].value * obj.Ageom * integral / h.value)
+        assert zp == pytest.approx(expected)
+
+    def test_field_coordinates_are_normalised_to_each_sensor(self, single_catalog):
+        """The sensor corner maps to +1 in both cases, so the correction matches."""
+        last = AbsoluteCalibration(catfile=single_catalog, telescope="LAST", use_atm=False)
+        past = AbsoluteCalibration(
+            catfile=single_catalog, telescope="PAST", band="SDSS_r", use_atm=False
+        )
+
+        params = last.Initialize_Params()
+        params["kx"].set(value=0.3)
+        params["ky"].set(value=-0.2)
+        params["kxy"].set(value=0.1)
+
+        fc_last = float(
+            last.ResidFunc(params, np.array([1726.0, 1726.0]), calc_zp=True, field_corr_=True)
+        )
+        fc_past = float(
+            past.ResidFunc(params, np.array([6422.0, 9600.0]), calc_zp=True, field_corr_=True)
+        )
+        assert fc_past == pytest.approx(fc_last)
+
+        # Half-way across each sensor must also agree, which a shared x/y range
+        # would not reproduce for the non-square PAST detector.
+        fc_last_mid = float(
+            last.ResidFunc(params, np.array([863.0, 863.0]), calc_zp=True, field_corr_=True)
+        )
+        fc_past_mid = float(
+            past.ResidFunc(params, np.array([3211.0, 4800.0]), calc_zp=True, field_corr_=True)
+        )
+        assert fc_past_mid == pytest.approx(fc_last_mid)
+
+    def test_unknown_telescope_is_rejected(self, single_catalog):
+        with pytest.raises(ValueError, match="Invalid telescope"):
+            AbsoluteCalibration(catfile=single_catalog, telescope="VLT")
+
+    def test_unknown_band_is_rejected(self, single_catalog):
+        with pytest.raises(ValueError, match="Invalid band"):
+            AbsoluteCalibration(catfile=single_catalog, band="Johnson_V")
+
+    def test_sdss_bands_are_not_available_on_last(self, single_catalog):
+        with pytest.raises(ValueError, match="not available on telescope 'LAST'"):
+            AbsoluteCalibration(catfile=single_catalog, telescope="LAST", band="SDSS_r")
+
+    def test_past_requires_a_filter(self, single_catalog):
+        """PAST always observes through one of the SDSS filters."""
+        with pytest.raises(ValueError, match="not available on telescope 'PAST'"):
+            AbsoluteCalibration(catfile=single_catalog, telescope="PAST", band="LAST")
+
+    def test_telescope_band_table_matches_the_supported_lists(self):
+        assert set(fitutils.TELESCOPE_BANDS) == set(fitutils.SUPPORTED_TELESCOPES)
+        listed = {b for bands in fitutils.TELESCOPE_BANDS.values() for b in bands}
+        assert listed == set(fitutils.SUPPORTED_BANDS)
+        assert set(fitutils.BAND_TEMPLATES) == set(fitutils.TELESCOPE_BANDS["PAST"])
+
+
+class TestFilterTemplates:
+    """Filter throughputs are read and validated once, at construction time."""
+
+    def test_clear_band_has_no_filter_template(self, abscal):
+        assert abscal.filter_transmission is None
+
+    @pytest.mark.parametrize("band", ["SDSS_g", "SDSS_r", "SDSS_i", "Bessel_V"])
+    def test_filter_template_is_resampled_onto_the_model_grid(self, single_catalog, band):
+        obj = AbsoluteCalibration(
+            catfile=single_catalog, telescope="PAST", band=band, use_atm=False
+        )
+        curve = obj.filter_transmission
+        assert curve.shape == WVL.shape
+        assert np.all((curve >= 0.0) & (curve <= 1.0))
+        assert np.any(curve > 0.0)
+
+        # The passband is one contiguous block covering a minority of the grid.
+        in_band = np.flatnonzero(curve > 0.5 * curve.max())
+        assert in_band.size < 0.4 * curve.size
+        assert np.all(np.diff(in_band) == 1)
+
+    @pytest.mark.parametrize("band", ["SDSS_g", "SDSS_r", "SDSS_i", "Bessel_V"])
+    def test_out_of_band_blocking_is_preserved(self, single_catalog, band):
+        """The Baader curves block to OD > 3 outside the passband."""
+        obj = AbsoluteCalibration(
+            catfile=single_catalog, telescope="PAST", band=band, use_atm=False
+        )
+        curve = obj.filter_transmission
+        peak_nm = WVL[np.argmax(curve)]
+        far = np.abs(WVL - peak_nm) > 200.0
+        assert curve[far].max() < 1e-3
+
+    def test_template_is_not_re_read_during_model_evaluation(self, single_catalog, monkeypatch):
+        obj = AbsoluteCalibration(
+            catfile=single_catalog, telescope="PAST", band="SDSS_i", use_atm=False
+        )
+
+        def _no_reads(*args, **kwargs):
+            raise AssertionError("filter template re-read during a model evaluation")
+
+        monkeypatch.setattr(fitutils.pd, "read_csv", _no_reads)
+        transm = obj.Calculate_Full_Transmission_from_params(obj.Initialize_Params())
+        assert np.all((transm >= 0.0) & (transm <= 1.0))
+
+    def test_missing_template_file_is_reported(self, single_catalog, monkeypatch):
+        monkeypatch.setitem(fitutils.BAND_TEMPLATES, "SDSS_r", "does_not_exist.csv")
+        with pytest.raises(ValueError, match="Missing filter template"):
+            AbsoluteCalibration(catfile=single_catalog, telescope="PAST", band="SDSS_r")
+
+    def test_template_with_a_renamed_column_is_reported(self, single_catalog, monkeypatch):
+        real_read_csv = fitutils.pd.read_csv
+
+        def _renamed(path, *args, **kwargs):
+            df = real_read_csv(path, *args, **kwargs)
+            if "sdss" in str(path):
+                df = df.rename(columns={"Throughput": "transmission"})
+            return df
+
+        monkeypatch.setattr(fitutils.pd, "read_csv", _renamed)
+        with pytest.raises(ValueError, match="no 'Throughput' column"):
+            AbsoluteCalibration(catfile=single_catalog, telescope="PAST", band="SDSS_r")
+
+    def test_template_in_the_wrong_wavelength_units_is_reported(
+        self, single_catalog, monkeypatch
+    ):
+        """A curve in Angstrom would otherwise interpolate silently to all zeros."""
+        real_read_csv = fitutils.pd.read_csv
+
+        def _angstrom(path, *args, **kwargs):
+            df = real_read_csv(path, *args, **kwargs)
+            if "sdss" in str(path):
+                df = df.copy()
+                df["Wavelength"] = df["Wavelength"] * 10.0
+            return df
+
+        monkeypatch.setattr(fitutils.pd, "read_csv", _angstrom)
+        with pytest.raises(ValueError, match="does not overlap the model grid"):
+            AbsoluteCalibration(catfile=single_catalog, telescope="PAST", band="SDSS_r")
 
 
 class TestInitializeParams:
@@ -141,23 +305,48 @@ class TestOpticalModel:
     @pytest.mark.parametrize(
         "band, peak_nm",
         [
-            ("SDSS_u", 366.0),
             ("SDSS_g", 480.0),
-            ("SDSS_r", 625.0),
-            ("SDSS_i", 765.0),
-            ("SDSS_z", 900.0),
+            ("SDSS_r", 588.0),
+            ("SDSS_i", 704.0),
+            ("Bessel_V", 522.0),
         ],
     )
-    def test_sdss_bands_load_their_own_throughput_curves(self, single_catalog, band, peak_nm):
-        obj = AbsoluteCalibration(catfile=single_catalog, band=band, use_atm=False)
+    def test_filtered_bands_load_their_own_throughput_curves(self, single_catalog, band, peak_nm):
+        """The peak sits inside the passband, pulled blueward by the falling QE."""
+        obj = AbsoluteCalibration(catfile=single_catalog, telescope="PAST", band=band, use_atm=False)
         transm = obj.Calculate_Full_Transmission_from_params(obj.Initialize_Params())
         assert np.all((transm >= 0.0) & (transm <= 1.0))
-        assert WVL[np.argmax(transm)] == pytest.approx(peak_nm, abs=60.0)
+        assert WVL[np.argmax(transm)] == pytest.approx(peak_nm, abs=20.0)
+
+    @pytest.mark.parametrize("band", ["SDSS_g", "SDSS_r", "SDSS_i", "Bessel_V"])
+    def test_filtered_band_is_the_ota_model_times_the_filter(self, single_catalog, band):
+        """PAST transmission = LAST OTA model x Baader filter throughput."""
+        obj = AbsoluteCalibration(catfile=single_catalog, telescope="PAST", band=band, use_atm=False)
+        clear = AbsoluteCalibration(catfile=single_catalog, telescope="LAST", use_atm=False)
+        params = obj.Initialize_Params()
+
+        filtered = obj.Calculate_Full_Transmission_from_params(params)
+        unfiltered = clear.Calculate_Full_Transmission_from_params(params)
+
+        np.testing.assert_allclose(filtered, unfiltered * obj.filter_transmission, rtol=1e-12)
+        assert np.all(filtered <= unfiltered + 1e-12)
+
+    def test_optical_parameters_still_drive_a_filtered_band(self, single_catalog):
+        """The QE model is inside the filtered model, so fitting it has an effect."""
+        obj = AbsoluteCalibration(
+            catfile=single_catalog, telescope="PAST", band="SDSS_i", use_atm=False
+        )
+        params = obj.Initialize_Params()
+        baseline = obj.Calculate_Full_Transmission_from_params(params)
+
+        params["center"].set(value=params["center"].value + 100.0)
+        shifted = obj.Calculate_Full_Transmission_from_params(params)
+        assert not np.allclose(baseline, shifted)
 
     def test_sdss_bands_are_ordered_in_wavelength(self, single_catalog):
         peaks = []
-        for band in ("SDSS_u", "SDSS_g", "SDSS_r", "SDSS_i", "SDSS_z"):
-            obj = AbsoluteCalibration(catfile=single_catalog, band=band, use_atm=False)
+        for band in ("SDSS_g", "Bessel_V", "SDSS_r", "SDSS_i"):
+            obj = AbsoluteCalibration(catfile=single_catalog, telescope="PAST", band=band, use_atm=False)
             transm = obj.Calculate_Full_Transmission_from_params(obj.Initialize_Params())
             peaks.append(WVL[np.argmax(transm)])
         assert peaks == sorted(peaks)

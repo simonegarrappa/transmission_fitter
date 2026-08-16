@@ -22,9 +22,58 @@ warnings.filterwarnings("ignore")
 import os
 np.random.seed(6)
 
+SUPPORTED_TELESCOPES = ['LAST','PAST']
+
+## Bands each telescope is equipped with. 'LAST' is the unfiltered (clear) band,
+## modelled analytically by Calculate_OTA_Transmission_from_Model; the PAST bands
+## are read from the filter templates below.
+TELESCOPE_BANDS = {
+    'LAST': ['LAST'],
+    'PAST': ['SDSS_g','SDSS_r','SDSS_i','Bessel_V'],
+}
+
+SUPPORTED_BANDS = [band for telescope in SUPPORTED_TELESCOPES for band in TELESCOPE_BANDS[telescope]]
+
+## Filter throughput templates, relative to data/Templates.
+## These are the measured Baader transmission curves (data/Templates/filters/,
+## converted from the vendor OD sheets by tools/convert_baader_xlsx.py). They are
+## filter-only curves: the telescope optics, the detector QE and the atmosphere
+## are applied separately, so a filtered band is modelled as the OTA transmission
+## of the telescope times the filter throughput.
+BAND_TEMPLATES = {
+    'SDSS_g': 'filters/baader_sdss_g.csv',
+    'SDSS_r': 'filters/baader_sdss_r.csv',
+    'SDSS_i': 'filters/baader_sdss_i.csv',
+    'Bessel_V': 'filters/baader_bessel_v.csv',
+}
+
+
+def validate_telescope_band(telescope, band):
+    """
+    Check that a telescope/band combination is one the package can model.
+
+    Parameters:
+    - telescope (str): The telescope name.
+    - band (str): The band name.
+
+    Raises:
+    - ValueError: If the telescope is unknown, or if the band is not one the
+      telescope is equipped with.
+    """
+    if telescope not in SUPPORTED_TELESCOPES:
+        raise ValueError("Invalid telescope '" + str(telescope) + "'. Supported telescopes are: "
+                         + ', '.join(SUPPORTED_TELESCOPES) + ".")
+    if band not in SUPPORTED_BANDS:
+        raise ValueError("Invalid band '" + str(band) + "'. Supported bands are: "
+                         + ', '.join(SUPPORTED_BANDS) + ".")
+    if band not in TELESCOPE_BANDS[telescope]:
+        raise ValueError("Band '" + str(band) + "' is not available on telescope '" + str(telescope)
+                         + "'. Bands for " + str(telescope) + " are: "
+                         + ', '.join(TELESCOPE_BANDS[telescope]) + ".")
+
 
 class AbsoluteCalibration(object):
-    def __init__(self, catfile, useHTM=False, use_atm=True, band='LAST'):
+    def __init__(self, catfile, useHTM=False, use_atm=True, telescope = 'LAST', band='LAST'):
         """
         Initialize the FitUtils class.
 
@@ -32,10 +81,17 @@ class AbsoluteCalibration(object):
         - catfile (str): The path to the catalog file.
         - useHTM (bool): Flag indicating whether to use HTM (Hierarchical Triangular Mesh) indexing. Default is False.
         - use_atm (bool): Flag indicating whether to use atmospheric correction. Default is True.
-        - band (str): The band to use. Default is 'LAST'.
+        - telescope (str): The telescope to calibrate, 'LAST' or 'PAST'. Default is 'LAST'.
+          It sets the collecting area and the sensor size used to normalise the field coordinates.
+        - band (str): The band to use. Default is 'LAST' (the unfiltered LAST band).
+          It must be one of the bands the telescope is equipped with, see TELESCOPE_BANDS.
 
         Returns:
         None
+
+        Raises:
+        - ValueError: If the telescope/band combination is not supported, or if the
+          filter template of the requested band cannot be used.
         """
         ## Init general info
         wvl_arr = make_wvl_array()
@@ -52,12 +108,17 @@ class AbsoluteCalibration(object):
         self.use_atm = use_atm
         self.use_orig_xlt = True
         self.get_residuals = False
+        self.telescope = telescope
         self.band = band
-        self.Ageom = math.pi*(0.1397**2)
+        validate_telescope_band(self.telescope, self.band)
+        if self.telescope == 'LAST':
+            self.Ageom = math.pi*(0.1397**2)
+        elif self.telescope == 'PAST':
+            self.Ageom = math.pi*(0.1778**2)
         self.ErrorEstimation = 'ErrProp'
         self.current_dir = os.path.dirname(__file__)
 
-        print('Using band: ' + self.band)
+        print('Using telescope: ' + self.telescope + ' - band: ' + self.band)
         #Mirror Reflectivity
         if self.use_orig_xlt:
             filename_xlt_mirror = os.path.join(self.current_dir,'data','Templates/StarBrightXLT_Mirror_Reflectivity.csv')
@@ -92,6 +153,10 @@ class AbsoluteCalibration(object):
 
         self.transmission_jolly = transmission_jolly
 
+        ## Filter throughput of the selected band, resampled on the model grid.
+        ## None for the unfiltered 'LAST' band, which is modelled analytically.
+        self.filter_transmission = self.load_filter_template(self.band)
+
         self.source_ids = None
         self.tables = None
         self.df_match = None
@@ -109,6 +174,73 @@ class AbsoluteCalibration(object):
 
         pass
     
+    def load_filter_template(self, band):
+        """
+        Read the filter throughput of a band and resample it on the model grid.
+
+        The template is read once, at construction time, so that a missing file,
+        a renamed column or a curve that does not overlap the model grid fails
+        immediately instead of thousands of times inside the fit.
+
+        Parameters:
+        - band (str): The band whose template is requested.
+
+        Returns:
+        - filter_transmission (numpy.ndarray or None): The throughput on self.wvl_arr,
+          or None for the unfiltered 'LAST' band.
+
+        Raises:
+        - ValueError: If the template is missing, malformed, or does not overlap
+          the model wavelength grid.
+        """
+        if band not in BAND_TEMPLATES:
+            return None
+
+        filename_transm = os.path.join(self.current_dir,'data','Templates',BAND_TEMPLATES[band])
+        if not os.path.isfile(filename_transm):
+            raise ValueError("Missing filter template for band '" + band + "': " + filename_transm)
+
+        template_transm = pd.read_csv(filename_transm)
+        for colname in ('Wavelength','Throughput'):
+            if colname not in template_transm.columns:
+                raise ValueError("Filter template " + filename_transm + " has no '" + colname
+                                 + "' column. Columns found: " + ', '.join(map(str,template_transm.columns)) + ".")
+
+        template_transm = template_transm[['Wavelength','Throughput']].dropna()
+        template_transm = template_transm.drop_duplicates(subset='Wavelength').sort_values('Wavelength')
+        if len(template_transm) < 2:
+            raise ValueError("Filter template " + filename_transm + " has fewer than 2 usable points.")
+
+        wvl_template = template_transm['Wavelength'].values
+        throughput = template_transm['Throughput'].values
+
+        interp_transm = interp1d(wvl_template,throughput,bounds_error=False,fill_value=0.)
+        filter_transmission = interp_transm(self.wvl_arr)
+
+        if not np.any(filter_transmission > 0.):
+            raise ValueError("Filter template " + filename_transm + " does not overlap the model grid ("
+                             + str(self.wvl_arr[0]) + "-" + str(self.wvl_arr[-1]) + " nm); the template covers "
+                             + str(wvl_template[0]) + "-" + str(wvl_template[-1]) + ". Wrong wavelength units?")
+
+        ## Flag a passband that the model grid clips. Only the contiguous block
+        ## around the peak counts as the passband: measured curves also show deep
+        ## out-of-band blocking, and some of them leak again in the far infrared,
+        ## which is outside the grid and irrelevant here.
+        peak_idx = int(np.argmax(throughput))
+        edge = 0.01*throughput[peak_idx]
+        lo = peak_idx
+        while lo > 0 and throughput[lo-1] > edge:
+            lo -= 1
+        hi = peak_idx
+        while hi < len(throughput)-1 and throughput[hi+1] > edge:
+            hi += 1
+
+        if wvl_template[lo] < self.wvl_arr[0] or wvl_template[hi] > self.wvl_arr[-1]:
+            print('Warning: the {} passband ({:.0f}-{:.0f} nm) is clipped by the {:.0f}-{:.0f} nm model grid.'.format(
+                band, wvl_template[lo], wvl_template[hi], self.wvl_arr[0], self.wvl_arr[-1]))
+
+        return filter_transmission
+
     def Initialize_Params(self):
         """
         Initialize the parameters for the fit.
@@ -288,32 +420,11 @@ class AbsoluteCalibration(object):
         params_ota.add('l7',value = parvals['l7'])
         params_ota.add('l8',value = parvals['l8'])
 
-        if self.band == 'LAST':
-            
-            OTA_transmission = self.Calculate_OTA_Transmission_from_Model(params_ota)
-        elif self.band == 'SDSS_u':
-            filename_transm = os.path.join(self.current_dir,'data','Templates/sdss_u.csv')
-            template_transm = pd.read_csv(filename_transm)
-        elif self.band == 'SDSS_g':
-            filename_transm = os.path.join(self.current_dir,'data','Templates/sdss_g.csv')
-            template_transm = pd.read_csv(filename_transm)
-            
-        elif self.band == 'SDSS_r':
-            filename_transm = os.path.join(self.current_dir,'data','Templates/sdss_r.csv')
-            template_transm = pd.read_csv(filename_transm)
-            
-        elif self.band == 'SDSS_i':
-            filename_transm = os.path.join(self.current_dir,'data','Templates/sdss_i.csv')
-            template_transm = pd.read_csv(filename_transm)
-        elif self.band == 'SDSS_z':
-            filename_transm = os.path.join(self.current_dir,'data','Templates/sdss_z.csv')
-            template_transm = pd.read_csv(filename_transm)
-        if self.band != 'LAST':    
-            
-            interp_transm = interp1d(template_transm['Wavelength'],template_transm['Throughput'],bounds_error=False,fill_value=0.)
-            OTA_transmission = interp_transm(self.wvl_arr)
-
-        
+        ## OTA transmission: QE model x mirror reflectivity x corrector transmission,
+        ## times the filter throughput when the band is a filtered one.
+        OTA_transmission = self.Calculate_OTA_Transmission_from_Model(params_ota)
+        if self.filter_transmission is not None:
+            OTA_transmission = OTA_transmission*self.filter_transmission
 
         ##Atmospheric components
         rayleigh_transm_Fit = Rayleigh_Transmission(self.z_,parvals['pressure']).make_transmission()
@@ -361,8 +472,17 @@ class AbsoluteCalibration(object):
         transm_full = self.Calculate_Full_Transmission_from_params(params)
         parvals = params.valuesdict()
         # Calculate flux (model)
-        min_coor = 0.
-        max_coor = 1726.
+        if self.telescope == 'LAST':
+            min_coor_x = 0.
+            max_coor_x = 1726.
+            min_coor_y = 0.
+            max_coor_y = 1726.
+
+        elif self.telescope == 'PAST':
+            min_coor_x = 0.
+            max_coor_x = 6422.
+            min_coor_y = 0.
+            max_coor_y = 9600.
 
         min_coortr = -1.
         max_coortr = +1.
@@ -371,13 +491,13 @@ class AbsoluteCalibration(object):
             Fnu = 3631.e-26 ## zero-flux for AB system
             a = scipy.integrate.trapezoid(Fnu*transm_full/self.wvl_arr,x=self.wvl_arr)
             b = h.value
-            xcoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[0]-max_coor)+max_coortr #(x_in[0] - 863.)/1726. 
-            ycoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[1]-max_coor)+max_coortr #(x_in[1] - 863.)/1726. 
+            xcoor_ = (max_coortr - min_coortr)/(max_coor_x-min_coor_x)*(x_in[0]-max_coor_x)+max_coortr #(x_in[0] - 863.)/1726. 
+            ycoor_ = (max_coortr - min_coortr)/(max_coor_y-min_coor_y)*(x_in[1]-max_coor_y)+max_coortr #(x_in[1] - 863.)/1726. 
         else:    
             a = scipy.integrate.trapezoid(transm_full*x_in[:,0:-2]*self.wvl_arr,x=self.wvl_arr)
             b = h.value*c.value*1e9
-            xcoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[:,-2]-max_coor)+max_coortr #(x_in[:,-2] - 863.)/1726. 
-            ycoor_ = (max_coortr - min_coortr)/(max_coor-min_coor)*(x_in[:,-1]-max_coor)+max_coortr #(x_in[:,-1] - 863.)/1726. 
+            xcoor_ = (max_coortr - min_coortr)/(max_coor_x-min_coor_x)*(x_in[:,-2]-max_coor_x)+max_coortr #(x_in[:,-2] - 863.)/1726. 
+            ycoor_ = (max_coortr - min_coortr)/(max_coor_y-min_coor_y)*(x_in[:,-1]-max_coor_y)+max_coortr #(x_in[:,-1] - 863.)/1726. 
         
         dt = 1. #20.
         Ageom = self.Ageom

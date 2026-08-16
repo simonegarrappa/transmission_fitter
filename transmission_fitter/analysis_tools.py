@@ -1,5 +1,5 @@
 
-from .fitutils import AbsoluteCalibration
+from .fitutils import AbsoluteCalibration, SUPPORTED_BANDS, SUPPORTED_TELESCOPES, TELESCOPE_BANDS, validate_telescope_band
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
@@ -32,7 +32,24 @@ from astropy.time import Time
 
 
 class LAST_ABSCAL_Analysis(object):
-    def __init__(self,useHTM = True,use_atm = True):
+    def __init__(self,useHTM = True,use_atm = True,telescope = 'LAST',band = 'LAST'):
+        """
+        Initialize the analysis driver.
+
+        Parameters:
+        - useHTM (bool): Flag indicating whether to use HTM indexing. Default is True.
+        - use_atm (bool): Flag indicating whether to use atmospheric correction. Default is True.
+        - telescope (str): The telescope to calibrate, 'LAST' or 'PAST'. Default is 'LAST'.
+        - band (str): The band to calibrate, one of the bands the telescope is
+          equipped with (see fitutils.TELESCOPE_BANDS). Default is 'LAST'.
+
+        Both `telescope` and `band` are propagated to every AbsoluteCalibration
+        object created by this class.
+        """
+        validate_telescope_band(telescope, band)
+
+        self.telescope = telescope
+        self.band = band
         self.params_cal = None
         self.df_match_cal = None
         self.catfile = None
@@ -73,7 +90,7 @@ class LAST_ABSCAL_Analysis(object):
             tuple: A tuple containing the parameters to save and the DataFrame of matched fits.
         """
         print('Calibrating catalog: {}'.format(catfile))
-        abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
+        abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
         abscal_obj.df_gaia_raw = self.df_gaia_raw
         abscal_obj._gaia_cache_region = self._gaia_cache_region
         old_cache_region = self._gaia_cache_region
@@ -141,7 +158,7 @@ class LAST_ABSCAL_Analysis(object):
         """
         ## Calibrate original catalog
         print('Calibrating catalog: {}'.format(catfile))
-        abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm)
+        abscal_obj = AbsoluteCalibration(catfile=catfile,useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
         abscal_obj.match_Gaia()
 
         params_to_save,df_match_fit = abscal_obj.fit_transmission()
@@ -303,7 +320,7 @@ class LAST_ABSCAL_Analysis(object):
 
         ## Create a default params object
         for i, catalog_i in enumerate(catalogs_list):
-            abscal_obj = AbsoluteCalibration(catfile=catalog_i,useHTM=self.useHTM,use_atm=self.use_atm)
+            abscal_obj = AbsoluteCalibration(catfile=catalog_i,useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
             params_i = abscal_obj.Initialize_Params()
             params_names = params_i.keys()
             ## Update the default params object with the values from the results file
@@ -399,7 +416,7 @@ class LAST_ABSCAL_Analysis(object):
         last_flags = last_cat_ref['FLAGS']
         x_c = np.array([last_x, last_y])
 
-        abscal_obj = AbsoluteCalibration(catfile=reference_cat.strip(),useHTM=self.useHTM,use_atm=self.use_atm)
+        abscal_obj = AbsoluteCalibration(catfile=reference_cat.strip(),useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
 
         abzp_ = abscal_obj.ResidFunc(params_list, x_c, calc_zp=True)
         fc_ = abscal_obj.ResidFunc(params_list, x_c, calc_zp=True,field_corr_ = True)
@@ -549,7 +566,7 @@ class LAST_ABSCAL_Analysis(object):
             last_flags = last_cat['FLAGS'][mask_match]
             x_c = np.array([last_x, last_y])
 
-            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=self.useHTM,use_atm=self.use_atm)
+            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
 
             abzp_ = abscal_obj.ResidFunc(params_list[j], x_c, calc_zp=True)
             fc_ = abscal_obj.ResidFunc(params_list[j],x_c,calc_zp=True,field_corr_ = True)
@@ -780,7 +797,7 @@ class LAST_ABSCAL_Analysis(object):
         flux_syn_list = []
         jd_syn_list = []
         for j, cat_ in enumerate(list(self.catlist)):
-            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=self.useHTM,use_atm=self.use_atm)
+            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
 
             transm_full = abscal_obj.Calculate_Full_Transmission_from_params(params[j])
             parvals = params[j].valuesdict()
@@ -1378,7 +1395,7 @@ class LAST_ABSCAL_Analysis(object):
         fig, ax = plt.subplots(1, figsize=(12, 10))
 
         for i, item in enumerate(self.catlist):
-            abscal_obj = AbsoluteCalibration(catfile=item, useHTM=self.useHTM, use_atm=self.use_atm)
+            abscal_obj = AbsoluteCalibration(catfile=item, useHTM=self.useHTM, use_atm=self.use_atm, telescope=self.telescope, band=self.band)
             transm_full = abscal_obj.Calculate_Full_Transmission_from_params(params_list[i])
             parvals = params_list[i].valuesdict()
 
@@ -1430,7 +1447,7 @@ class LAST_ABSCAL_Analysis(object):
 
         for i,params_ in enumerate(params_cal):
             last_cat,info_cat = LastCatUtils().tables_from_lastcat(self.catlist[i].strip())
-            abscal_obj = AbsoluteCalibration(catfile=self.catlist[i].strip(),useHTM=self.useHTM,use_atm=self.use_atm)
+            abscal_obj = AbsoluteCalibration(catfile=self.catlist[i].strip(),useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
             coord_last_cat = SkyCoord(ra = last_cat['RA'],dec = last_cat['DEC'], unit = 'deg',frame = 'icrs')
             if 'coadd' in self.catlist[i]:
                 n_coadd  = info_cat.header['NCOADD']
@@ -1658,7 +1675,7 @@ class LAST_ABSCAL_Analysis(object):
         x_in_grid = np.array([X_,Y_])
 
         
-        abscalobj = AbsoluteCalibration(self.catfile,useHTM=self.useHTM,use_atm=self.use_atm)
+        abscalobj = AbsoluteCalibration(self.catfile,useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
         zp_matrix = np.zeros((len(X_),len(self.params_cal)))
         for i,item in enumerate(self.params_cal):
             zp_matrix[:,i] = abscalobj.ResidFunc(params=item,x_in=x_in_grid,calc_zp=True)
@@ -1915,7 +1932,7 @@ class LAST_ABSCAL_Analysis(object):
         axs_ = axs[0,1]
         params_list = self.params_cal
         for i,item in enumerate(self.catlist):
-            abscal_obj = AbsoluteCalibration(catfile=item,useHTM=self.useHTM,use_atm=self.use_atm)
+            abscal_obj = AbsoluteCalibration(catfile=item,useHTM=self.useHTM,use_atm=self.use_atm,telescope=self.telescope,band=self.band)
             transm_full = abscal_obj.Calculate_Full_Transmission_from_params(params_list[i])
             parvals = params_list[i].valuesdict()
             axs_.plot(abscal_obj.wvl_arr,transm_full*parvals['norm'],label = str(i))
@@ -1991,7 +2008,7 @@ class LAST_ABSCAL_Analysis(object):
 
             cat_ = self.catlist[i]
 
-            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=False,use_atm=True)
+            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=False,use_atm=True,telescope=self.telescope,band=self.band)
             params_set = self.params_cal[i]
             abzp_ = abscal_obj.ResidFunc(params_set, x_c, calc_zp=True)
             #fc_ = abscal_obj.ResidFunc(params_set,x_c,calc_zp=True,field_corr_ = True)
@@ -2105,7 +2122,7 @@ class LAST_ABSCAL_Analysis(object):
 
             cat_ = self.catlist[i]
 
-            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=False,use_atm=True)
+            abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=False,use_atm=True,telescope=self.telescope,band=self.band)
             params_set = self.params_cal[i]
             abzp_ = abscal_obj.ResidFunc(params_set, x_c, calc_zp=True)
             #fc_ = abscal_obj.ResidFunc(params_set,x_c,calc_zp=True,field_corr_ = True)

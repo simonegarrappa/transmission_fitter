@@ -11,6 +11,7 @@ import astropy.units as u
 import numpy as np
 import pandas as pd
 import pytest
+from astropy.constants import c, h
 from astropy.coordinates import SkyCoord
 
 from transmission_fitter import analysis_tools
@@ -46,6 +47,32 @@ class TestInitialisation:
         assert analysis.df_matchedsources is None
         assert analysis.wvl_arr.shape == (401,)
         assert analysis.cal_results_dir is None
+        assert analysis.telescope == "LAST"
+        assert analysis.band == "LAST"
+
+    @pytest.mark.parametrize(
+        "telescope, band",
+        [("LAST", "LAST"), ("PAST", "SDSS_g"), ("PAST", "Bessel_V")],
+    )
+    def test_telescope_and_band_are_stored(self, telescope, band):
+        obj = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False, telescope=telescope, band=band)
+        assert obj.telescope == telescope
+        assert obj.band == band
+
+    def test_unknown_telescope_is_rejected(self):
+        with pytest.raises(ValueError, match="Invalid telescope"):
+            LAST_ABSCAL_Analysis(telescope="VLT")
+
+    def test_unknown_band_is_rejected(self):
+        with pytest.raises(ValueError, match="Invalid band"):
+            LAST_ABSCAL_Analysis(band="Johnson_V")
+
+    def test_invalid_telescope_band_combinations_are_rejected_up_front(self):
+        """The combination fails at construction, not on the first catalog."""
+        with pytest.raises(ValueError, match="not available on telescope 'LAST'"):
+            LAST_ABSCAL_Analysis(telescope="LAST", band="SDSS_r")
+        with pytest.raises(ValueError, match="not available on telescope 'PAST'"):
+            LAST_ABSCAL_Analysis(telescope="PAST", band="LAST")
 
     def test_subframe_layout_covers_the_full_24_frame_mosaic(self, analysis):
         layout = analysis.dict_lastframe
@@ -71,8 +98,12 @@ class TestCalibrateSingleCatalog:
         class _StubAbsCal:
             instances = []
 
-            def __init__(self, catfile, useHTM=False, use_atm=True):
+            def __init__(self, catfile, useHTM=False, use_atm=True, telescope="LAST", band="LAST"):
                 self.catfile = catfile
+                self.useHTM = useHTM
+                self.use_atm = use_atm
+                self.telescope = telescope
+                self.band = band
                 self.df_gaia_raw = None
                 self._gaia_cache_region = None
                 self.calibrated_spectra = None
@@ -119,6 +150,18 @@ class TestCalibrateSingleCatalog:
         analysis.calibrate_single_catalog(single_catalogs[1])
         assert stub_abscal.instances[0].match_calls == [True]
         assert stub_abscal.instances[1].match_calls == [False]
+
+    def test_telescope_and_band_reach_the_calibration_object(
+        self, stub_abscal, single_catalog
+    ):
+        analysis = LAST_ABSCAL_Analysis(
+            useHTM=False, use_atm=False, telescope="PAST", band="SDSS_r"
+        )
+        analysis.calibrate_single_catalog(single_catalog)
+        created = stub_abscal.instances[0]
+        assert created.telescope == "PAST"
+        assert created.band == "SDSS_r"
+        assert created.useHTM is False and created.use_atm is False
 
     def test_htm_mode_always_downloads(self, stub_abscal, single_catalogs):
         analysis = LAST_ABSCAL_Analysis(useHTM=True, use_atm=False)
@@ -266,6 +309,54 @@ class TestSyntheticPhotometry:
         bright = analysis.make_Synthetic_Photometry_LC(wvl, 3e-16 * np.ones_like(wvl))
         assert bright["FLUX_SYN"].iloc[0] / faint["FLUX_SYN"].iloc[0] == pytest.approx(3.0)
 
+    def test_past_synthetic_flux_uses_the_past_geometry_and_filter(
+        self, params_for, single_catalog
+    ):
+        """Both settings reach the model: the flux matches a PAST/SDSS_r calculation."""
+        wvl = np.linspace(300.0, 1100.0, 200)
+        spectrum = 1e-16 * np.ones_like(wvl)
+
+        obj = LAST_ABSCAL_Analysis(
+            useHTM=False, use_atm=False, telescope="PAST", band="SDSS_r"
+        )
+        obj.catlist = [single_catalog]
+        params = params_for()
+        obj.params_cal = [params]
+        flux = obj.make_Synthetic_Photometry_LC(wvl, spectrum)["FLUX_SYN"].iloc[0]
+
+        reference = AbsoluteCalibration(
+            catfile=single_catalog, telescope="PAST", band="SDSS_r", use_atm=False
+        )
+        transm = reference.Calculate_Full_Transmission_from_params(params)
+        integral = np.trapezoid(transm * 1e-16 * reference.wvl_arr, x=reference.wvl_arr)
+        expected = params["norm"].value * reference.Ageom * integral / (h.value * c.value * 1e9)
+        assert flux == pytest.approx(expected)
+
+    def test_each_band_gets_its_own_throughput(self, params_for, single_catalog):
+        """Every PAST band produces the flux implied by its own passband."""
+        wvl = np.linspace(300.0, 1100.0, 200)
+        spectrum = 1e-16 * np.ones_like(wvl)
+        params = params_for()
+
+        fluxes = {}
+        for band in ("SDSS_g", "SDSS_r", "SDSS_i", "Bessel_V"):
+            obj = LAST_ABSCAL_Analysis(
+                useHTM=False, use_atm=False, telescope="PAST", band=band
+            )
+            obj.catlist = [single_catalog]
+            obj.params_cal = [params]
+            fluxes[band] = obj.make_Synthetic_Photometry_LC(wvl, spectrum)["FLUX_SYN"].iloc[0]
+
+            reference = AbsoluteCalibration(
+                catfile=single_catalog, telescope="PAST", band=band, use_atm=False
+            )
+            transm = reference.Calculate_Full_Transmission_from_params(params)
+            integral = np.trapezoid(transm * 1e-16 * reference.wvl_arr, x=reference.wvl_arr)
+            expected = params["norm"].value * reference.Ageom * integral / (h.value * c.value * 1e9)
+            assert fluxes[band] == pytest.approx(expected)
+
+        assert len(set(fluxes.values())) == 4
+
 
 class TestAirmassCorrection:
     @pytest.fixture
@@ -361,6 +452,37 @@ class TestGetLightCurve:
             1 - info_cat.header["MED_B"] / info_cat.header["MED_A"]
         )
         assert analysis.df_lc is df_lc
+
+    def test_configuration_reaches_the_zero_point(
+        self, params_for, single_catalog, catalog_tables, clean_sources
+    ):
+        last_cat, _ = catalog_tables
+        row = int(clean_sources[0])
+        target = SkyCoord(ra=last_cat["RA"][row] * u.deg, dec=last_cat["Dec"][row] * u.deg)
+        params = params_for()
+
+        zero_points = {}
+        for telescope, band in (("LAST", "LAST"), ("PAST", "SDSS_r")):
+            obj = LAST_ABSCAL_Analysis(
+                useHTM=False, use_atm=False, telescope=telescope, band=band
+            )
+            obj.catlist = [single_catalog]
+            obj.params_cal = [params]
+            zero_points[telescope] = obj.get_lc(target)["AB_ZP"].iloc[0]
+
+            reference = AbsoluteCalibration(
+                catfile=single_catalog, telescope=telescope, band=band, use_atm=False
+            )
+            transm = reference.Calculate_Full_Transmission_from_params(params)
+            integral = np.trapezoid(3631.0e-26 * transm / reference.wvl_arr, x=reference.wvl_arr)
+            expected = 2.5 * np.log10(
+                params["norm"].value * reference.Ageom * integral / h.value
+            )
+            assert zero_points[telescope] == pytest.approx(expected)
+
+        # The narrow r' band collects less than the clear LAST band despite the
+        # larger PAST aperture, so its AB zero point is fainter.
+        assert zero_points["PAST"] < zero_points["LAST"]
 
     def test_no_source_at_the_position_gives_an_empty_frame(
         self, analysis, params_for, single_catalog

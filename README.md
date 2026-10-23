@@ -2,7 +2,7 @@
 
 Welcome to the transmission_fitter GitHub repository!
 
-The code in this repository is presented in https://arxiv.org/abs/2412.13257 
+The code in this repository is presented in Garrappa et al. (2025) A&A 699, A50 (https://doi.org/10.1051/0004-6361/202453440)
 
 Please cite the paper if you use this code in your work.
 

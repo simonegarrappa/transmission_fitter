@@ -763,33 +763,90 @@ class LAST_ABSCAL_Analysis(object):
 
     
 
-    def make_Synthetic_Photometry_LC(self, wvl_array, spectrum_):
+    def make_Synthetic_Photometry_LC(self, wvl_array, spectrum_, last_x=None, last_y=None):
         """
-        Calculates the synthetic photometry using the given parameters, wavelength array, and spectrum.
+        Calculate the synthetic light curve of a spectrum through the calibrated system.
+
+        For every catalog in self.catlist the spectrum is folded through the fitted
+        transmission of that epoch, giving the count rate the telescope would have
+        measured for such a source:
+
+            flux_syn = norm * Ageom * Int( T(lam) * F_lam(lam) * lam dlam ) / (h*c)
+
+        When a sensor position is given, the fitted field correction at that position
+        is applied on top, which is what ResidFunc adds when it models an observed
+        source. Without a position the correction is left out and the result refers to
+        a perfectly flat field, so it is not directly comparable to the measured flux
+        of a real source: with typical fitted coefficients the difference reaches ~10%
+        at the edge of the sensor and does not vanish at its centre.
 
         Parameters:
-        - params: A dictionary-like object containing the parameter values.
-        - wvl_array: An array of wavelengths.
-        - spectrum_: An array of corresponding spectrum values.
+        - wvl_array (array): Wavelengths of the input spectrum, in nm.
+        - spectrum_ (array): Flux density at those wavelengths, in W m-2 nm-1, the
+          units of the Gaia XP sampled spectra. Outside its range the edge values are
+          held, as the fit does in Prepare_Spectra_for_Fit_ErrProp.
+        - last_x, last_y (float or array, optional): Position of the source on the
+          sensor, either a single value used for every epoch or one value per catalog
+          in self.catlist. Both are needed to apply the field correction.
 
         Returns:
-        - flux_syn: The calculated synthetic photometry flux.
-
+        - df_lc_syn (pandas.DataFrame): One row per catalog, sorted by JD, with the
+          columns JD, FLUX_SYN (count rate, photons/s), FIELD_CORR (magnitudes, 0
+          when no position was given), LAST_X and LAST_Y.
         """
+        catlist = list(self.catlist)
+        n_cat = len(catlist)
+
+        ## calibrate_single_catalog stores one Parameters object, the list-based
+        ## entry points store one per catalog.
         params = self.params_cal
+        params_list = list(params) if isinstance(params, (list, tuple, np.ndarray)) else [params]*n_cat
+        if len(params_list) != n_cat:
+            raise ValueError('params_cal holds {} parameter sets but catlist has {} catalogs.'.format(
+                len(params_list), n_cat))
+
+        wvl_in = np.asarray(wvl_array, dtype=float)
+        mu_array = np.asarray(spectrum_)
+        if mu_array.ndim != 1 or mu_array.shape != wvl_in.shape:
+            raise ValueError('wvl_array and spectrum_ must be 1-D of the same length, got {} and {}. '
+                             'A table of Gaia spectra has to be passed as its flux column, '
+                             "e.g. calibrated_spectra['flux'].iloc[0].".format(wvl_in.shape, mu_array.shape))
+        mu_array = mu_array.astype(float)
+
+        ## Resample on the model grid once, holding the edge values outside the range
+        ## of the input spectrum. The fit treats the Gaia spectra the same way;
+        ## extrapolating a noisy edge over tens of nm can drive the flux density
+        ## negative.
+        order = np.argsort(wvl_in)
+        wvl_sorted, mu_sorted = wvl_in[order], mu_array[order]
+        CS_spectrum = interp1d(wvl_sorted, mu_sorted, bounds_error=False,
+                               fill_value=(mu_sorted[0], mu_sorted[-1]))
+        spectrum_interp = CS_spectrum(self.wvl_arr)
+
+        use_field_corr = (last_x is not None) and (last_y is not None)
+        if use_field_corr:
+            x_arr = np.atleast_1d(np.asarray(last_x, dtype=float))
+            y_arr = np.atleast_1d(np.asarray(last_y, dtype=float))
+            if x_arr.size == 1:
+                x_arr = np.repeat(x_arr, n_cat)
+            if y_arr.size == 1:
+                y_arr = np.repeat(y_arr, n_cat)
+            if x_arr.size != n_cat or y_arr.size != n_cat:
+                raise ValueError('last_x and last_y must be a single value or one per catalog '
+                                 '({} catalogs), got {} and {}.'.format(n_cat, x_arr.size, y_arr.size))
+        else:
+            print('No sensor position given: the field correction is not applied to the synthetic fluxes.')
+            x_arr = np.full(n_cat, np.nan)
+            y_arr = np.full(n_cat, np.nan)
+
         flux_syn_list = []
+        field_corr_list = []
         jd_syn_list = []
-        for j, cat_ in enumerate(list(self.catlist)):
+        for j, cat_ in enumerate(catlist):
             abscal_obj = AbsoluteCalibration(catfile=cat_.strip(),useHTM=self.useHTM,use_atm=self.use_atm)
 
-            transm_full = abscal_obj.Calculate_Full_Transmission_from_params(params[j])
-            parvals = params[j].valuesdict()
-
-            ## Interpolate spectrum and resample with self.wvl_arr
-            mu_array = np.asarray(spectrum_)#['flux'][0])
-            
-            CS_spectrum = interp1d(wvl_array, mu_array, bounds_error=False,fill_value="extrapolate")
-            spectrum_interp = CS_spectrum(self.wvl_arr)
+            transm_full = abscal_obj.Calculate_Full_Transmission_from_params(params_list[j])
+            parvals = params_list[j].valuesdict()
 
             a = scipy.integrate.trapezoid(transm_full * spectrum_interp * abscal_obj.wvl_arr, x=abscal_obj.wvl_arr)
             b = h.value * c.value * 1e9
@@ -797,14 +854,27 @@ class LAST_ABSCAL_Analysis(object):
             Ageom = abscal_obj.Ageom
 
             flux_syn = parvals['norm'] * Ageom * a / b
+
+            ## Same spatial term that ResidFunc adds to the model magnitude, so the
+            ## synthetic flux can be compared with the measured flux of a source at
+            ## this position.
+            if use_field_corr:
+                field_corr = float(abscal_obj.ResidFunc(params_list[j], np.array([x_arr[j], y_arr[j]]),
+                                                        calc_zp=True, field_corr_=True))
+                flux_syn = flux_syn * 10 ** (field_corr / 2.5)
+            else:
+                field_corr = 0.
+
             flux_syn_list.append(flux_syn)
+            field_corr_list.append(field_corr)
             jd_syn_list.append(abscal_obj.jd_)
-        
-        df_lc_syn = pd.DataFrame({'JD': jd_syn_list, 'FLUX_SYN': flux_syn_list})
-        df_lc_syn = df_lc_syn.sort_values(by='JD')
+
+        df_lc_syn = pd.DataFrame({'JD': jd_syn_list, 'FLUX_SYN': flux_syn_list,
+                                  'FIELD_CORR': field_corr_list, 'LAST_X': x_arr, 'LAST_Y': y_arr})
+        df_lc_syn = df_lc_syn.sort_values(by='JD').reset_index(drop=True)
 
         return df_lc_syn
-    
+
     def make_Synthetic_Photometry_from_coordinates(self, coor_target):
         """
         Query Gaia DR3 at the given coordinates and return the Gaia source_id
@@ -859,7 +929,7 @@ class LAST_ABSCAL_Analysis(object):
         calibrated_spectra, sampling = gaiaobj.retrieve_gaia_spectra_from_ids([gaia_id])
         print(sampling)
         print(calibrated_spectra)
-        df_lc_syn = self.make_Synthetic_Photometry_LC(sampling, calibrated_spectra)
+        df_lc_syn = self.make_Synthetic_Photometry_LC(sampling, calibrated_spectra['flux'].iloc[0])
 
         return df_lc_syn
 

@@ -247,7 +247,7 @@ class TestSyntheticPhotometry:
 
         df_lc = analysis.make_Synthetic_Photometry_LC(wvl, spectrum)
 
-        assert list(df_lc.columns) == ["JD", "FLUX_SYN"]
+        assert list(df_lc.columns) == ["JD", "FLUX_SYN", "FIELD_CORR", "LAST_X", "LAST_Y"]
         assert len(df_lc) == len(single_catalogs)
         assert df_lc["JD"].is_monotonic_increasing
         assert (df_lc["FLUX_SYN"] > 0).all()
@@ -265,6 +265,137 @@ class TestSyntheticPhotometry:
         faint = analysis.make_Synthetic_Photometry_LC(wvl, 1e-16 * np.ones_like(wvl))
         bright = analysis.make_Synthetic_Photometry_LC(wvl, 3e-16 * np.ones_like(wvl))
         assert bright["FLUX_SYN"].iloc[0] / faint["FLUX_SYN"].iloc[0] == pytest.approx(3.0)
+
+    @staticmethod
+    def spatial_params(params):
+        """Parameter set with spatial terms of the size a real fit produces."""
+        for name, value in [("kx0", -0.0365), ("kx", -0.0112), ("ky", 0.0623),
+                            ("kx2", 0.0080), ("ky2", -0.0650), ("kxy", 0.011)]:
+            params[name].set(value=value)
+        return params
+
+    @staticmethod
+    def fit_model_flux(abscal, params, spectrum, sampling, x, y):
+        """Flux the fit predicts for a source with this spectrum at (x, y)."""
+        spectra = pd.DataFrame({"GaiaDR3_ID": [10**18], "flux": [spectrum],
+                                "flux_error": [0.01 * spectrum]})
+        df_match = pd.DataFrame({"GaiaDR3_ID": [10**18], "LAST_X": [x], "LAST_Y": [y]})
+        matrix, _ = abscal.Prepare_Spectra_for_Fit_ErrProp(["1"], spectra, sampling, df_match)
+        return 10 ** (abscal.ResidFunc(params, matrix)[0] / 2.5)
+
+    @pytest.mark.parametrize("x, y", [(863.0, 863.0), (100.0, 100.0), (1600.0, 300.0)])
+    def test_field_corrected_flux_matches_the_fitted_model(self, single_catalog, x, y):
+        """With a position, the synthetic flux is what the fit predicts is measured."""
+        abscal = AbsoluteCalibration(catfile=single_catalog, use_atm=False)
+        params = self.spatial_params(abscal.Initialize_Params())
+        sampling = np.linspace(336.0, 1020.0, 343)
+        spectrum = 1e-16 * (sampling / 500.0) ** -1.5
+
+        analysis = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False)
+        analysis.catlist = [single_catalog]
+        analysis.params_cal = [params]
+        row = analysis.make_Synthetic_Photometry_LC(
+            sampling, spectrum, last_x=x, last_y=y
+        ).iloc[0]
+
+        expected = self.fit_model_flux(abscal, params, spectrum, sampling, x, y)
+        assert row["FLUX_SYN"] == pytest.approx(expected, rel=1e-12)
+        assert row["LAST_X"] == x and row["LAST_Y"] == y
+
+    def test_field_correction_is_the_only_difference(self, single_catalog):
+        """Without a position the flux is the corrected one divided by 10**(fc/2.5)."""
+        abscal = AbsoluteCalibration(catfile=single_catalog, use_atm=False)
+        params = self.spatial_params(abscal.Initialize_Params())
+        sampling = np.linspace(336.0, 1020.0, 343)
+        spectrum = 1e-16 * np.ones_like(sampling)
+
+        analysis = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False)
+        analysis.catlist = [single_catalog]
+        analysis.params_cal = [params]
+
+        plain = analysis.make_Synthetic_Photometry_LC(sampling, spectrum).iloc[0]
+        corrected = analysis.make_Synthetic_Photometry_LC(
+            sampling, spectrum, last_x=100.0, last_y=100.0
+        ).iloc[0]
+
+        assert plain["FIELD_CORR"] == 0.0
+        assert np.isnan(plain["LAST_X"])
+        assert corrected["FLUX_SYN"] == pytest.approx(
+            plain["FLUX_SYN"] * 10 ** (corrected["FIELD_CORR"] / 2.5)
+        )
+        # The correction is worth several percent at the corner of the sensor.
+        assert abs(corrected["FLUX_SYN"] / plain["FLUX_SYN"] - 1) > 0.05
+
+    def test_positions_can_be_given_per_epoch(self, single_catalogs):
+        """A source lands on a different pixel in each visit."""
+        analysis = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False)
+        analysis.catlist = single_catalogs
+        abscal = AbsoluteCalibration(catfile=single_catalogs[0], use_atm=False)
+        params = self.spatial_params(abscal.Initialize_Params())
+        analysis.params_cal = [params] * len(single_catalogs)
+        sampling = np.linspace(336.0, 1020.0, 343)
+        spectrum = 1e-16 * np.ones_like(sampling)
+
+        xs = [100.0, 863.0, 1600.0]
+        per_epoch = analysis.make_Synthetic_Photometry_LC(
+            sampling, spectrum, last_x=xs, last_y=xs
+        )
+        assert sorted(per_epoch["LAST_X"].tolist()) == sorted(xs)
+        assert per_epoch["FIELD_CORR"].nunique() == len(xs)
+
+        # A single value is used for every epoch.
+        scalar = analysis.make_Synthetic_Photometry_LC(
+            sampling, spectrum, last_x=863.0, last_y=863.0
+        )
+        assert scalar["FIELD_CORR"].nunique() == 1
+
+    def test_edge_values_are_held_as_in_the_fit(self, single_catalog):
+        """A spectrum narrower than the model grid is clamped, not extrapolated."""
+        abscal = AbsoluteCalibration(catfile=single_catalog, use_atm=False)
+        params = abscal.Initialize_Params()
+        sampling = np.linspace(336.0, 1020.0, 343)
+        spectrum = 1e-16 * (sampling / 500.0) ** -1.5
+        spectrum[-6:] *= np.linspace(1.0, 0.05, 6)  # steeply falling red edge
+
+        analysis = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False)
+        analysis.catlist = [single_catalog]
+        analysis.params_cal = [params]
+        flux = analysis.make_Synthetic_Photometry_LC(
+            sampling, spectrum, last_x=863.0, last_y=863.0
+        )["FLUX_SYN"].iloc[0]
+
+        expected = self.fit_model_flux(abscal, params, spectrum, sampling, 863.0, 863.0)
+        assert flux == pytest.approx(expected, rel=1e-12)
+
+    def test_single_parameter_set_is_accepted(self, single_catalog, params_for):
+        """calibrate_single_catalog leaves params_cal as one Parameters object."""
+        analysis = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False)
+        analysis.catlist = [single_catalog]
+        analysis.params_cal = params_for()
+        sampling = np.linspace(336.0, 1020.0, 343)
+        df_lc = analysis.make_Synthetic_Photometry_LC(sampling, 1e-16 * np.ones_like(sampling))
+        assert df_lc["FLUX_SYN"].iloc[0] > 0
+
+    def test_a_spectra_table_is_rejected_with_a_useful_message(self, single_catalog, params_for):
+        """The shape that make_Synthetic_Photometry_from_coordinates used to pass."""
+        analysis = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False)
+        analysis.catlist = [single_catalog]
+        analysis.params_cal = [params_for()]
+        sampling = np.linspace(336.0, 1020.0, 343)
+        spectra_table = pd.DataFrame({"flux": [np.ones_like(sampling)],
+                                      "flux_error": [np.ones_like(sampling)]})
+        with pytest.raises(ValueError, match="flux column"):
+            analysis.make_Synthetic_Photometry_LC(sampling, spectra_table)
+
+    def test_mismatched_positions_are_rejected(self, single_catalogs, params_for):
+        analysis = LAST_ABSCAL_Analysis(useHTM=False, use_atm=False)
+        analysis.catlist = single_catalogs
+        analysis.params_cal = [params_for(catfile=c) for c in single_catalogs]
+        sampling = np.linspace(336.0, 1020.0, 343)
+        with pytest.raises(ValueError, match="one per catalog"):
+            analysis.make_Synthetic_Photometry_LC(
+                sampling, 1e-16 * np.ones_like(sampling), last_x=[1.0, 2.0], last_y=[1.0, 2.0]
+            )
 
 
 class TestAirmassCorrection:
